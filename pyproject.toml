@@ -8,4 +8,6 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "pandas",
+    "geopandas>=1.1.1",
+    "matplotlib>=3.10.6",
 ]
