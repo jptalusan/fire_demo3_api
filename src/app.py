@@ -28,12 +28,79 @@ def get_stations():
     stations = [f for f in files if f.startswith("stations")]
     return {"stations": stations}
 
-@app.get("/get-incidents")
-def get_incidents():
-    data_dir = Path(__file__).parent.parent / "data"
-    files = os.listdir(data_dir)
-    incidents = [f for f in files if f.startswith("incidents")]
-    return {"incidents": incidents}
+
+
+@app.post("/get-incidents")
+async def get_incidents(request: Request):
+    import hashlib
+    from fastapi import Response
+    
+    try:
+        body = await request.json()
+        model_id = body["modelId"]
+        filters = body.get("filters", {})
+        
+        # Only handle historical_incidents model
+        if model_id != "historical_incidents":
+            return {"status": "error", "error": "Only historical_incidents model is supported"}
+        
+        # Extract date range from filters
+        date_range = filters.get("dateRange", {})
+        start_date = date_range.get("start")
+        end_date = date_range.get("end")
+        
+        if not start_date or not end_date:
+            return {"status": "error", "error": "Date range with start and end dates is required"}
+        
+        # Generate a unique filename based on the query parameters
+        query_hash = hashlib.md5(f"{model_id}_{start_date}_{end_date}".encode()).hexdigest()
+        query_filename = f"historical_{start_date}_{end_date}_{query_hash[:8]}.csv"
+        
+        # Define paths
+        data_dir = Path(__file__).parent.parent / "data"
+        query_dir = data_dir / "incidents" / "historical" / "query"
+        query_path = query_dir / query_filename
+        source_file = data_dir / "incidents_export_apparatus.csv"
+        
+        # Ensure query directory exists
+        query_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Check if the filtered query already exists
+        if query_path.exists():
+            print(f"Using cached query: {query_filename}")
+            # Read the existing filtered CSV
+            with open(query_path, 'r') as f:
+                csv_content = f.read()
+        else:
+            print(f"Creating new filtered query: {query_filename}")
+            # Load the source data and filter by date range
+            df = pd.read_csv(source_file)
+            df['datetime'] = pd.to_datetime(df['datetime'])
+            
+            # Filter by date range
+            start_dt = pd.to_datetime(start_date)
+            end_dt = pd.to_datetime(end_date)
+            filtered_df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
+            
+            if filtered_df.empty:
+                return {"status": "error", "error": f"No incidents found in date range {start_date} to {end_date}"}
+            
+            # Convert back to string format for CSV
+            filtered_df['datetime'] = filtered_df['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Save the filtered query
+            filtered_df.to_csv(query_path, index=False)
+            csv_content = filtered_df.to_csv(index=False)
+            
+
+
+        # Return the CSV content
+        return Response(content=csv_content, media_type="text/csv")
+        
+    except Exception as e:
+        print(f"Error in get_incidents: {str(e)}")
+        return {"status": "error", "error": str(e)}
+    
 
 @app.get("/get-shapes")
 def get_shapes():
@@ -67,7 +134,7 @@ async def run_simulation2(request: Request):
         "FEATURES_PATH": str(models_dir / "fire_model_features_mapping.json"),
         
         "INCIDENTS_CSV_PATH": str(data_dir / "incidents_small.csv"),
-        "STATIONS_CSV_PATH": str(data_dir / "stations.csv"),
+        # "STATIONS_CSV_PATH": str(data_dir / "stations.csv"),
         "APPARATUS_CSV_PATH": str(data_dir / "stations_with_apparatus.csv"),
         "BOUNDS_GEOJSON_PATH": str(data_dir / "bounds.geojson"),
         "NFD_RESPONSE_CSV_PATH": str(data_dir / "NFDResponse.csv"),
@@ -86,7 +153,7 @@ async def run_simulation2(request: Request):
     print("config before parsing payload:", config)
     # Parse the incoming JSON payload
     payload = await request.json()
-    # print("Received payload:", payload)
+    print("Received payload:", payload)
 
     # print("Current config before update:", config)
     # Update the config with any overrides from the payload
@@ -97,7 +164,7 @@ async def run_simulation2(request: Request):
     command = [
         "./data/fire_simulator",
         f"--INCIDENTS_CSV_PATH={config['INCIDENTS_CSV_PATH']}",
-        f"--STATIONS_CSV_PATH={config['STATIONS_CSV_PATH']}",
+        # f"--STATIONS_CSV_PATH={config['STATIONS_CSV_PATH']}",
         f"--APPARATUS_CSV_PATH={config['APPARATUS_CSV_PATH']}",
         f"--FIRE_MODEL_TYPE={config['FIRE_MODEL_TYPE']}",
         f"--MODEL_PATH={config['MODEL_PATH']}",
@@ -121,10 +188,10 @@ async def run_simulation2(request: Request):
     # Execute the command
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=True)
-        station_report = summarize_station_report_as_json(config['STATION_REPORT_CSV_PATH'])
+        station_report, total_incidents, average_response_time, coverage_percent = summarize_station_report_as_json(config['STATION_REPORT_CSV_PATH'])
         print("Simulation completed successfully.")
 
-        result = {"status": "success", "total_incidents": 100, "station_report": station_report, "average_response_time": 2.4,}
+        result = {"status": "success", "total_incidents": total_incidents, "station_report": station_report, "average_response_time": float(average_response_time), "coverage_percent": coverage_percent}
         print(result)
         return result
     except subprocess.CalledProcessError as e:
