@@ -10,4 +10,5 @@ dependencies = [
     "pandas",
     "geopandas>=1.1.1",
     "matplotlib>=3.10.6",
+    "ipykernel>=7.0.1",
 ]

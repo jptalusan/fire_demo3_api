@@ -55,41 +55,54 @@ async def run_simulation(request: Request):
 async def run_simulation2(request: Request):
     # Define the JSON configuration
     await asyncio.sleep(5)
+    data_dir = Path(__file__).parent.parent / "data"
+    logs_dir = Path(__file__).parent.parent / "logs"
+    models_dir = Path(__file__).parent.parent / "models"
     config = {
         "OSRM_URL": "http://localhost:8080/table/v1/driving/",
         "BASE_OSRM_URL": "http://localhost:8080",
-        "DISPATCH_POLICY": "NEAREST",
-        "INCIDENTS_CSV_PATH": "/Users/jose/Developer/git/fire_simulator/data/incidents_ammar.csv",
-        "STATIONS_CSV_PATH": "/Users/jose/Developer/git/fire_simulator/data/stations.csv",
-        "APPARATUS_CSV_PATH": "/Users/jose/Developer/git/fire_simulator/data/stations_with_apparatus.csv",
-        "BOUNDS_GEOJSON_PATH": "/Users/jose/Developer/git/fire_simulator/data/bounds.geojson",
-        "NFD_RESPONSE_CSV_PATH": "/Users/jose/Developer/git/fire_simulator/data/NFDResponse.csv",
-        "RESOLUTION_STATS_CSV_PATH": "/Users/jose/Developer/git/fire_simulator/data/response_time_summary.csv",
-        "REPORT_CSV_PATH": "/Users/jose/Developer/git/fire_simulator/logs/incident_report.csv",
-        "STATION_REPORT_CSV_PATH": "/Users/jose/Developer/git/fire_simulator/logs/station_report.csv",
-        "DURATION_MATRIX_PATH": "/Users/jose/Developer/git/fire_simulator/logs/duration_matrix.bin",
-        "DISTANCE_MATRIX_PATH": "/Users/jose/Developer/git/fire_simulator/logs/distance_matrix.bin",
-        "MATRIX_CSV_PATH": "/Users/jose/Developer/git/fire_simulator/logs/matrix.csv",
-        "FIREBEATS_MATRIX_PATH": "/Users/jose/Developer/git/fire_simulator/logs/beats.bin",
-        "ZONE_MAP_PATH": "/Users/jose/Developer/git/fire_simulator/data/zones.csv",
-        "BEATS_SHAPEFILE_PATH": "/Users/jose/Developer/git/fire_simulator/data/beats_shpfile.geojson",
+        "DISPATCH_POLICY": "FIREBEATS",
+        "FIRE_MODEL_TYPE": "ML",
+        "MODEL_PATH": str(models_dir / "fire_incident_gb_model.onnx"),
+        "FEATURES_PATH": str(models_dir / "fire_model_features_mapping.json"),
+        
+        "INCIDENTS_CSV_PATH": str(data_dir / "incidents_small.csv"),
+        "STATIONS_CSV_PATH": str(data_dir / "stations.csv"),
+        "APPARATUS_CSV_PATH": str(data_dir / "stations_with_apparatus.csv"),
+        "BOUNDS_GEOJSON_PATH": str(data_dir / "bounds.geojson"),
+        "NFD_RESPONSE_CSV_PATH": str(data_dir / "NFDResponse.csv"),
+        "RESOLUTION_STATS_CSV_PATH": str(data_dir / "response_time_summary.csv"),
+        "REPORT_CSV_PATH": str(logs_dir / "incident_report.csv"),
+        "STATION_REPORT_CSV_PATH": str(logs_dir / "station_report.csv"),
+        "DURATION_MATRIX_PATH": str(logs_dir / "duration_matrix.bin"),
+        "DISTANCE_MATRIX_PATH": str(logs_dir / "distance_matrix.bin"),
+        "MATRIX_CSV_PATH": str(logs_dir / "matrix.csv"),
+        "FIREBEATS_MATRIX_PATH": str(logs_dir / "beats.bin"),
+        "ZONE_MAP_PATH": str(data_dir / "zones.csv"),
+        "BEATS_SHAPEFILE_PATH": str(data_dir / "beats_shpfile.geojson"),
         "RANDOM_SEED": 42,
         "PYTHON_PATH": "../../venvBOC/bin/python"
     }
-
+    print("config before parsing payload:", config)
     # Parse the incoming JSON payload
     payload = await request.json()
-    print("Received payload:", payload)
+    # print("Received payload:", payload)
+
     # print("Current config before update:", config)
     # Update the config with any overrides from the payload
     config.update(payload)
 
+    # print("Updated config:", config)
     # Construct the command for the C++ simulator
     command = [
         "./data/fire_simulator",
         f"--INCIDENTS_CSV_PATH={config['INCIDENTS_CSV_PATH']}",
         f"--STATIONS_CSV_PATH={config['STATIONS_CSV_PATH']}",
         f"--APPARATUS_CSV_PATH={config['APPARATUS_CSV_PATH']}",
+        f"--FIRE_MODEL_TYPE={config['FIRE_MODEL_TYPE']}",
+        f"--MODEL_PATH={config['MODEL_PATH']}",
+        f"--FEATURES_PATH={config['FEATURES_PATH']}",
+        f"--DISPATCH_POLICY={config['DISPATCH_POLICY']}",
         f"--BOUNDS_GEOJSON_PATH={config['BOUNDS_GEOJSON_PATH']}",
         f"--NFD_RESPONSE_CSV_PATH={config['NFD_RESPONSE_CSV_PATH']}",
         f"--RESOLUTION_STATS_CSV_PATH={config['RESOLUTION_STATS_CSV_PATH']}",
@@ -104,14 +117,18 @@ async def run_simulation2(request: Request):
         f"--RANDOM_SEED={config['RANDOM_SEED']}",
         f"--PYTHON_PATH={config['PYTHON_PATH']}",
     ]
-    # print("Executing command:", " ".join(command))
+    print("Executing command:", " ".join(command))
     # Execute the command
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=True)
         station_report = summarize_station_report_as_json(config['STATION_REPORT_CSV_PATH'])
-        print(station_report)
-        return {"status": "success", "output": result.stdout, "total_incidents": 100, "station_report": station_report, "average_response_time": 2.4,}
+        print("Simulation completed successfully.")
+
+        result = {"status": "success", "total_incidents": 100, "station_report": station_report, "average_response_time": 2.4,}
+        print(result)
+        return result
     except subprocess.CalledProcessError as e:
+        print("Error executing simulation:", e.stderr)
         return {"status": "error", "error": e.stderr}
 
 @app.post("/process-incidents")

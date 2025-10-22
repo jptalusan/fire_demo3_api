@@ -16,9 +16,9 @@ def summarize_station_report_as_json(station_report_path: str) -> List[Dict[str,
     df = pd.read_csv(station_report_path)
     # Group by StationName and calculate metrics
     summary_df = (
-        df.groupby("StationName")
+        df.groupby("StationID")
         .agg(
-            AverageTravelTime=("TravelTime", "mean"),
+            AverageTravelTime=("TravelTimeToIncident", "mean"),
             IncidentCount=("IncidentID", "count")
         )
         .reset_index()
@@ -27,7 +27,7 @@ def summarize_station_report_as_json(station_report_path: str) -> List[Dict[str,
     # Convert to JSON-like structure and ensure native Python types
     summary_json = []
     for _, row in summary_df.iterrows():
-        station_id = str(row["StationName"])
+        station_id = str(row["StationID"])
         travel_time_mean = float(row["AverageTravelTime"])
         incident_count = int(row["IncidentCount"])
         
