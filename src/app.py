@@ -9,7 +9,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import io
 import random
-from src.sim_result_processor import summarize_station_report_as_json
+from src.sim_result_processor import summarize_station_report_as_json, calculate_average_response_times_by_incident_type
+import hashlib
 
 app = FastAPI()
 
@@ -118,24 +119,112 @@ async def run_simulation(request: Request):
     await asyncio.sleep(1)
     return {"status": "success", "total_incidents": 100, "payload": payload}
 
+def create_stations_csv_from_payload(stations_data, output_path):
+    """
+    Create a stations_with_apparatus.csv file from the payload stations data
+    
+    Args:
+        stations_data: List of station dictionaries from the payload
+        output_path: Path where to save the CSV file
+    """
+    # Define all possible apparatus types based on your example
+    apparatus_types = ['Engine_ID', 'Truck', 'Rescue', 'Hazard', 'Squad', 'FAST', 'Medic', 'Brush', 'Boat', 'UTV', 'REACH', 'Chief']
+    
+    rows = []
+    for station in stations_data:
+        # Initialize apparatus counts to empty
+        apparatus_counts = {app_type: '' for app_type in apparatus_types}
+        
+        # Fill in the apparatus counts from the payload
+        for apparatus in station.get('apparatus', []):
+            app_type = apparatus['type']
+            count = apparatus['count']
+            
+            # Map apparatus types to CSV column names
+            if app_type == 'Engine':
+                apparatus_counts['Engine_ID'] = count
+            else:
+                apparatus_counts[app_type] = count
+        
+        # Create row for CSV
+        row = {
+            'StationID': station['id'],
+            'Stations': station['name'],
+            'lat': station['lat'],
+            'lon': station['lon'],
+            'Nashville Fire Stations': f"User Station {station['id']}",  # Generic address for user-defined stations
+            **apparatus_counts
+        }
+        rows.append(row)
+    
+    # Create DataFrame and save to CSV
+    df = pd.DataFrame(rows)
+    # Ensure columns are in the right order
+    columns = ['StationID', 'Stations', 'lat', 'lon', 'Nashville Fire Stations'] + apparatus_types
+    df = df[columns]
+    df.to_csv(output_path, index=False)
+    print(f"Created user stations file: {output_path}")
+
 @app.post("/run-simulation2")
 async def run_simulation2(request: Request):
-    # Define the JSON configuration
-    await asyncio.sleep(5)
+    # Parse the incoming JSON payload first
+    payload = await request.json()
+
+    # Define paths
     data_dir = Path(__file__).parent.parent / "data"
     logs_dir = Path(__file__).parent.parent / "logs"
     models_dir = Path(__file__).parent.parent / "models"
+    
+    # Create user-defined stations file if stations are provided
+    user_stations_path = data_dir / "stations_with_apparatus_by_user.csv"
+    if 'stations' in payload and payload['stations']:
+        create_stations_csv_from_payload(payload['stations'], user_stations_path)
+    
+    # Determine incident file path based on payload
+    incidents_path = str(data_dir / "incidents_small.csv")  # default
+    if payload.get('models', {}).get('incident') == 'historical_incidents':
+        # Use the filtered incidents from get-incidents endpoint
+        date_range = payload.get('dateRange', {})
+        if date_range.get('startDate') and date_range.get('endDate'):
+            
+            start_date = date_range['startDate'][:10]  # Extract date part (YYYY-MM-DD)
+            end_date = date_range['endDate'][:10]
+            query_hash = hashlib.md5(f"historical_incidents_{start_date}_{end_date}".encode()).hexdigest()
+            query_filename = f"historical_{start_date}_{end_date}_{query_hash[:8]}.csv"
+            query_path = data_dir / "incidents" / "historical" / "query" / query_filename
+            if query_path.exists():
+                incidents_path = str(query_path)
+                print(f"Using filtered incidents: {incidents_path}")
+    
+    # Map dispatch policy from payload
+    dispatch_policy = "FIREBEATS"  # default
+    if payload.get('dispatchPolicy') == 'nearest':
+        dispatch_policy = "NEAREST"
+    elif payload.get('models', {}).get('dispatch') == 'nearest':
+        dispatch_policy = "NEAREST"
+    
+    # Map fire model type from payload
+    fire_model_type = "ML"  # default
+    service_time_model = payload.get('models', {}).get('serviceTime', 'ml_based')
+    if service_time_model == 'ml_based':
+        fire_model_type = "ML"
+    elif service_time_model == 'constant':
+        fire_model_type = "CONSTANT"
+    elif service_time_model == 'empirical_servicetimes':
+        fire_model_type = "HISTORICAL"
+    
+    # Define the JSON configuration
+    await asyncio.sleep(5)
     config = {
         "OSRM_URL": "http://localhost:8080/table/v1/driving/",
         "BASE_OSRM_URL": "http://localhost:8080",
-        "DISPATCH_POLICY": "FIREBEATS",
-        "FIRE_MODEL_TYPE": "ML",
+        "DISPATCH_POLICY": dispatch_policy,
+        "FIRE_MODEL_TYPE": fire_model_type,
         "MODEL_PATH": str(models_dir / "fire_incident_gb_model.onnx"),
         "FEATURES_PATH": str(models_dir / "fire_model_features_mapping.json"),
         
-        "INCIDENTS_CSV_PATH": str(data_dir / "incidents_small.csv"),
-        # "STATIONS_CSV_PATH": str(data_dir / "stations.csv"),
-        "APPARATUS_CSV_PATH": str(data_dir / "stations_with_apparatus.csv"),
+        "INCIDENTS_CSV_PATH": incidents_path,
+        "APPARATUS_CSV_PATH": str(user_stations_path if user_stations_path.exists() else data_dir / "stations_with_apparatus.csv"),
         "BOUNDS_GEOJSON_PATH": str(data_dir / "bounds.geojson"),
         "NFD_RESPONSE_CSV_PATH": str(data_dir / "NFDResponse.csv"),
         "RESOLUTION_STATS_CSV_PATH": str(data_dir / "response_time_summary.csv"),
@@ -150,21 +239,21 @@ async def run_simulation2(request: Request):
         "RANDOM_SEED": 42,
         "PYTHON_PATH": "../../venvBOC/bin/python"
     }
-    print("config before parsing payload:", config)
-    # Parse the incoming JSON payload
-    payload = await request.json()
-    print("Received payload:", payload)
 
-    # print("Current config before update:", config)
-    # Update the config with any overrides from the payload
-    config.update(payload)
 
-    # print("Updated config:", config)
+    # Update config with any direct overrides from the payload (excluding processed fields)
+    config_overrides = {k: v for k, v in payload.items() 
+                       if k not in ['stations', 'dateRange', 'models', 'dispatchPolicy', 'stationData', 
+                                   'selectedIncidentFile', 'selectedStationFile', 'responseTime', 
+                                   'maxDistance', 'options']}
+    config.update(config_overrides)
+    
+
+    # Construct the command for the C++ simulator
     # Construct the command for the C++ simulator
     command = [
         "./data/fire_simulator",
         f"--INCIDENTS_CSV_PATH={config['INCIDENTS_CSV_PATH']}",
-        # f"--STATIONS_CSV_PATH={config['STATIONS_CSV_PATH']}",
         f"--APPARATUS_CSV_PATH={config['APPARATUS_CSV_PATH']}",
         f"--FIRE_MODEL_TYPE={config['FIRE_MODEL_TYPE']}",
         f"--MODEL_PATH={config['MODEL_PATH']}",
@@ -188,11 +277,13 @@ async def run_simulation2(request: Request):
     # Execute the command
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=True)
-        station_report, total_incidents, average_response_time, coverage_percent = summarize_station_report_as_json(config['STATION_REPORT_CSV_PATH'])
+        station_report, total_incidents, average_response_time, coverage_percent, vehicle_json = summarize_station_report_as_json(config['STATION_REPORT_CSV_PATH'], config['REPORT_CSV_PATH'])
+        average_response_time_per_incident_type = calculate_average_response_times_by_incident_type(config['STATION_REPORT_CSV_PATH'], config['REPORT_CSV_PATH'],incidents_path)
         print("Simulation completed successfully.")
+        #print simulator stdout and stderr for debugging
 
-        result = {"status": "success", "total_incidents": total_incidents, "station_report": station_report, "average_response_time": float(average_response_time), "coverage_percent": coverage_percent}
-        print(result)
+        result = {"status": "success", "total_incidents": total_incidents, "station_report": station_report, "average_response_time": float(average_response_time), "coverage_percent": coverage_percent, "vehicle_report": vehicle_json, "average_response_time_per_incident_type": average_response_time_per_incident_type}
+        print("Simulation result:", result)
         return result
     except subprocess.CalledProcessError as e:
         print("Error executing simulation:", e.stderr)
