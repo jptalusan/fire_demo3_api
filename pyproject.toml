@@ -11,4 +11,6 @@ dependencies = [
     "geopandas>=1.1.1",
     "matplotlib>=3.10.6",
     "ipykernel>=7.0.1",
+    "scikit-learn>=1.7.2",
+    "shapely>=2.1.2",
 ]
