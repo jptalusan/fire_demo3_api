@@ -39,6 +39,9 @@ def get_stations():
     return {"stations": stations}
 
 
+@app.get("/status")
+def status():
+    return "Hello World"
 
 @app.post("/get-incidents")
 async def get_incidents(request: Request):
@@ -46,7 +49,9 @@ async def get_incidents(request: Request):
     from fastapi import Response
     
     try:
+        print("Check")
         body = await request.json()
+        print(body)
         model_id = body["modelId"]
         filters = body.get("filters", {})
         
@@ -241,13 +246,12 @@ async def run_simulation2(request: Request):
     # Define the JSON configuration
     await asyncio.sleep(5)
     config = {
-        "OSRM_URL": "http://localhost:8080/table/v1/driving/",
-        "BASE_OSRM_URL": "http://localhost:8080",
+        "OSRM_URL": "https://hobvmisap57/osrm/table/v1/driving/",
+        "BASE_OSRM_URL": "https://hobvmisap57/osrm",
         "DISPATCH_POLICY": dispatch_policy,
         "FIRE_MODEL_TYPE": fire_model_type,
         "MODEL_PATH": str(models_dir / "fire_incident_gb_model.onnx"),
         "FEATURES_PATH": str(models_dir / "fire_model_features_mapping.json"),
-        
         "INCIDENTS_CSV_PATH": incidents_path,
         "APPARATUS_CSV_PATH": str(user_stations_path if user_stations_path.exists() else data_dir / "stations_with_apparatus.csv"),
         "BOUNDS_GEOJSON_PATH": str(data_dir / "bounds.geojson"),
@@ -278,6 +282,8 @@ async def run_simulation2(request: Request):
     # Construct the command for the C++ simulator
     command = [
         "./data/fire_simulator",
+        f"--OSRM_URL={config['OSRM_URL']}",
+        f"--BASE_OSRM_URL={config['BASE_OSRM_URL']}",
         f"--INCIDENTS_CSV_PATH={config['INCIDENTS_CSV_PATH']}",
         f"--APPARATUS_CSV_PATH={config['APPARATUS_CSV_PATH']}",
         f"--FIRE_MODEL_TYPE={config['FIRE_MODEL_TYPE']}",
@@ -670,7 +676,7 @@ def predict_incidents_with_types_and_coordinates(start_date, end_date):
             
             # Add the predicted time to current time to get next incident time
             next_incident_time = current_time + pd.Timedelta(hours=predicted_time_bet)
-            next_incident_time = next_incident_time.round('S')
+            next_incident_time = next_incident_time.round('s')
             
             # If next incident is within our time range, record it
             if next_incident_time <= end_date:
