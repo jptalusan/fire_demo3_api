@@ -107,7 +107,7 @@ def calculate_average_response_times_by_incident_type(station_report_path, incid
     incident_report=pd.read_csv(incident_report_path)
     incident_data=pd.read_csv(incident_path)
     #create the first responder dataframe
-    station_report["ArrivalTime"] = pd.to_datetime(station_report["Time"]) + pd.to_timedelta(station_report["TravelTimeToIncident"], unit='s')
+    station_report["ArrivalTime"] = pd.to_datetime(station_report["Time"]) + pd.to_timedelta((station_report["TravelTimeToIncident"]+60), unit='s')
     station_report = station_report.sort_values(by=['IncidentID', 'ArrivalTime']).reset_index(drop=True)
     firstdf = station_report.groupby(['IncidentID']).first().reset_index()
     
