@@ -49,7 +49,7 @@ async def get_incidents(request: Request):
     from fastapi import Response
     
     try:
-        print("Check")
+        
         body = await request.json()
         print(body)
         model_id = body["modelId"]
@@ -232,6 +232,12 @@ async def run_simulation2(request: Request):
         dispatch_policy = "NEAREST"
     elif payload.get('models', {}).get('dispatch') == 'nearest':
         dispatch_policy = "NEAREST"
+        
+    travel_time_model = payload.get('models', {}).get('travelTime', 'OSRM')
+    if travel_time_model == 'ARCGIS':
+        travel_time_model = "OSRM"
+
+        
     
     # Map fire model type from payload
     fire_model_type = "ML"  # default
@@ -242,6 +248,7 @@ async def run_simulation2(request: Request):
         fire_model_type = "CONSTANT"
     elif service_time_model == 'empirical_servicetimes':
         fire_model_type = "HISTORICAL"
+        
     
     # Define the JSON configuration
     await asyncio.sleep(5)
@@ -252,11 +259,18 @@ async def run_simulation2(request: Request):
         "FIRE_MODEL_TYPE": fire_model_type,
         "MODEL_PATH": str(models_dir / "fire_incident_gb_model.onnx"),
         "FEATURES_PATH": str(models_dir / "fire_model_features_mapping.json"),
+        "TRAVEL_TIME_MODEL_TYPE": travel_time_model,
+        
         "INCIDENTS_CSV_PATH": incidents_path,
         "APPARATUS_CSV_PATH": str(user_stations_path if user_stations_path.exists() else data_dir / "stations_with_apparatus.csv"),
         "BOUNDS_GEOJSON_PATH": str(data_dir / "bounds.geojson"),
         "NFD_RESPONSE_CSV_PATH": str(data_dir / "NFDResponse.csv"),
         "RESOLUTION_STATS_CSV_PATH": str(data_dir / "response_time_summary.csv"),
+        
+        "MEAN_MATRIX_PATH": str(data_dir / "interpolation_data/mean_zone_travel_time_matrix.json"),
+        "STD_MATRIX_PATH": str(data_dir / "interpolation_data/std_zone_travel_time_matrix.json"),
+        "ZONE_INFO_PATH": str(data_dir / "interpolation_data/zone_fire_station_info.json"),
+
         "REPORT_CSV_PATH": str(logs_dir / "incident_report.csv"),
         "STATION_REPORT_CSV_PATH": str(logs_dir / "station_report.csv"),
         "DURATION_MATRIX_PATH": str(logs_dir / "duration_matrix.bin"),
@@ -289,6 +303,12 @@ async def run_simulation2(request: Request):
         f"--FIRE_MODEL_TYPE={config['FIRE_MODEL_TYPE']}",
         f"--MODEL_PATH={config['MODEL_PATH']}",
         f"--FEATURES_PATH={config['FEATURES_PATH']}",
+        f"--TRAVEL_TIME_MODEL_TYPE={config['TRAVEL_TIME_MODEL_TYPE']}",
+        f"--OSRM_URL={config['OSRM_URL']}",
+        f"--BASE_OSRM_URL={config['BASE_OSRM_URL']}",
+        f"--MEAN_MATRIX_PATH={config['MEAN_MATRIX_PATH']}",
+        f"--STD_MATRIX_PATH={config['STD_MATRIX_PATH']}",
+        f"--ZONE_INFO_PATH={config['ZONE_INFO_PATH']}",
         f"--DISPATCH_POLICY={config['DISPATCH_POLICY']}",
         f"--BOUNDS_GEOJSON_PATH={config['BOUNDS_GEOJSON_PATH']}",
         f"--NFD_RESPONSE_CSV_PATH={config['NFD_RESPONSE_CSV_PATH']}",
