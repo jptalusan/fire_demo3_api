@@ -23,6 +23,7 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
     
     # Calculate overall response time metrics
     average_response_time = firstdf["TravelTimeToIncident"].mean()
+    P90_continuous = firstdf["TravelTimeToIncident"].quantile(0.9)
     target_response_minutes = 5
     target_seconds = target_response_minutes * 60
     
@@ -42,6 +43,7 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
     # Aggregate statistics per station
     summary_df = (firstdf.groupby("StationID").agg(
                 AverageTravelTime=("TravelTimeToIncident", "mean"),
+                P90TravelTime=("TravelTimeToIncident", lambda x: x.quantile(0.9)),
                 IncidentCount=("IncidentIndex", "count"),
                 TravelTimes=("TravelTimeToIncident", list),
                 AverageServiceTime=("Total_Service_Time", "mean"),
@@ -50,6 +52,7 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
 
     average_travel_time_per_vehicle_df=(df.groupby("Type").agg(
                 AverageTravelTime=("TravelTimeToIncident", "mean"),
+                P90TravelTime=("TravelTimeToIncident", lambda x: x.quantile(0.9)),
                 IncidentCount=("IncidentID", "count"),
             ).reset_index())
     
@@ -59,12 +62,14 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
             station_id = str(row["Type"])
             travel_time_mean = float(row["AverageTravelTime"])
             incident_count = int(row["IncidentCount"])
+            travel_time_p90 = float(row["P90TravelTime"])
 
 
             vehicle_json.append({
                 station_id: {
                     "travel time mean": travel_time_mean,
                     "incident count": incident_count,
+                    "travel time p90": travel_time_p90
                 }
             })
 
@@ -73,10 +78,12 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
     for _, row in summary_df.iterrows():
             station_id = str(row["StationID"])
             travel_time_mean = float(row["AverageTravelTime"])
+            travel_time_p90 = float(row["P90TravelTime"])
             incident_count = int(row["IncidentCount"])
             travel_times = row["TravelTimes"]
             average_service_time = row["AverageServiceTime"]
             service_times = row["ServiceTimes"]
+            
 
             summary_json.append({
                 station_id: {
@@ -84,11 +91,12 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
                     "incident count": incident_count,
                     "travel times": travel_times,
                     "average service time": average_service_time,
-                    "service times": service_times
+                    "service times": service_times,
+                    "travel time p90": travel_time_p90
                 }
             })
     
-    return summary_json, total_incidents, average_response_time, coverage_percent, vehicle_json
+    return summary_json, total_incidents, average_response_time, coverage_percent, vehicle_json, P90_continuous
 
 def calculate_average_response_times_by_incident_type(station_report_path, incident_report_path, incident_path):
     """
@@ -107,7 +115,7 @@ def calculate_average_response_times_by_incident_type(station_report_path, incid
     incident_report=pd.read_csv(incident_report_path)
     incident_data=pd.read_csv(incident_path)
     #create the first responder dataframe
-    station_report["ArrivalTime"] = pd.to_datetime(station_report["Time"]) + pd.to_timedelta((station_report["TravelTimeToIncident"]+60), unit='s')
+    station_report["ArrivalTime"] = pd.to_datetime(station_report["Time"]) + pd.to_timedelta(station_report["TravelTimeToIncident"], unit='s')
     station_report = station_report.sort_values(by=['IncidentID', 'ArrivalTime']).reset_index(drop=True)
     firstdf = station_report.groupby(['IncidentID']).first().reset_index()
     
@@ -118,6 +126,7 @@ def calculate_average_response_times_by_incident_type(station_report_path, incid
     merged_df=merged_df.merge(incident_data[['incident_id','incident_type']], left_on='IncidentID', right_on='incident_id', how='inner')
     type_summary = merged_df.groupby('incident_type').agg(
         AverageTravelTime=('TravelTimeToIncident', 'mean'),
+        P90TravelTime=('TravelTimeToIncident', lambda x: x.quantile(0.9)),
         IncidentCount=('IncidentID', 'count')
     )
   
@@ -128,6 +137,7 @@ def calculate_average_response_times_by_incident_type(station_report_path, incid
         summary_json.append({
             incident_type: {
                 "average travel time": float(row["AverageTravelTime"]),
+                "travel time p90": float(row["P90TravelTime"]),
                 "incident count": int(row["IncidentCount"])
         
             }
