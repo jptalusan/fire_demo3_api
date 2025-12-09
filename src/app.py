@@ -9,7 +9,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import io
 import random
-from src.sim_result_processor import summarize_station_report_as_json, calculate_average_response_times_by_incident_type
+from src.sim_result_processor import summarize_station_report_as_json, calculate_average_response_times_by_incident_type, evaluate_simulation_performance
 import hashlib
 
 import os
@@ -825,6 +825,17 @@ async def run_simulation2(request: Request):
         station_report, total_incidents, average_response_time, coverage_percent, vehicle_json, P90_continuous = summarize_station_report_as_json(config['STATION_REPORT_CSV_PATH'], config['REPORT_CSV_PATH'])
         average_response_time_per_incident_type = calculate_average_response_times_by_incident_type(config['STATION_REPORT_CSV_PATH'], config['REPORT_CSV_PATH'],incidents_path)
         print("Simulation completed successfully.")
+        if (station_data_option == 'default_stations')&(payload.get('models', {}).get('incident') == 'historical_incidents'):
+            if incident_type == 'fire':
+                evaluation= evaluate_simulation_performance(config['REPORT_CSV_PATH'], config['STATION_REPORT_CSV_PATH'], data_dir / "incident_resolution_times_fire.csv", incident_type='fire')
+                
+            else:
+                evaluation= evaluate_simulation_performance(config['REPORT_CSV_PATH'], config['STATION_REPORT_CSV_PATH'], data_dir / "incident_resolution_times.csv")
+            
+            result = {"status": "success", "total_incidents": total_incidents, "station_report": station_report, "average_response_time": float(average_response_time), "coverage_percent": coverage_percent, "vehicle_report": vehicle_json, "average_response_time_per_incident_type": average_response_time_per_incident_type, "P90_continuous": float(P90_continuous), "evaluation": evaluation}
+            print(evaluation['overall_summary'])
+            print("average_response_time:", float(average_response_time), "coverage_percent:", coverage_percent, "P90_continuous:", float(P90_continuous))
+            return result
         #print simulator stdout and stderr for debugging
 
         result = {"status": "success", "total_incidents": total_incidents, "station_report": station_report, "average_response_time": float(average_response_time), "coverage_percent": coverage_percent, "vehicle_report": vehicle_json, "average_response_time_per_incident_type": average_response_time_per_incident_type, "P90_continuous": float(P90_continuous)}
