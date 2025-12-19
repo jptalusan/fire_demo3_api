@@ -16,7 +16,7 @@ done
 curl http://127.0.0.1:8000/api/v1/openapi.json -o openapi.json
 
 # Generate HTML docs
-npx redoc-cli bundle openapi.json -o api_spec.html
+npx redoc-cli bundle openapi.json -o index.html
 
 # Kill the FastAPI server
 kill $SERVER_PID
