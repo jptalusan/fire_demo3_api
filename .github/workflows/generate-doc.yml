@@ -1,0 +1,34 @@
+name: Generate Documentation
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  generate-doc:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Ensure script is executable
+      run: chmod +x src/bin/gen-doc.sh
+
+    - name: Run documentation generation script
+      run: ./src/bin/gen-doc.sh
+
+    - name: Verify index.html
+      run: |
+        if [ ! -f index.html ]; then
+          echo "index.html not generated!" >&2
+          exit 1
+        fi
+
+    - name: Upload index.html as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: generated-doc
+        path: index.html
