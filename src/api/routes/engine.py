@@ -2,13 +2,18 @@
 
 import asyncio
 import hashlib
-from pathlib import Path
 import subprocess
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 
 import src.core.config as constants
 from src.engine.results import calculate_average_response_times_by_incident_type, evaluate_simulation_performance, summarize_station_report_as_json
 from src.engine.simulation import calculate_comparison_stats, create_stations_csv_from_payload, run_simulation_internal
+from src.schemas.engine import (
+    RunComparisonRequest,
+    RunComparisonResponse,
+    RunSimulationRequest,
+    SimulationRunResponse,
+)
 
 router = APIRouter()
 
@@ -17,20 +22,17 @@ data_dir = constants.DATA_DIR
 logs_dir = constants.BASE_DIR / "logs"
 models_dir = constants.BASE_DIR / "models"
 
-@router.api_route("/run-comparison", methods=["POST"])
-async def run_comparison(request: Request):
+@router.post("/run-comparison", response_model=RunComparisonResponse)
+async def run_comparison(payload: RunComparisonRequest):
     """
     Runs simulations for both baseline and new configurations and returns comparative statistics.
     """
-    if request.method == "GET":
-        return {"status": "error", "error": "POST method required"}
-    
     try:
-        payload = await request.json()
-        print("Received payload for comparison:", payload)
-        
-        baseline_config = payload.get('baseline', {})
-        new_config = payload.get('newConfig', {})
+        payload_dict = payload.model_dump(by_alias=True)
+        print("Received payload for comparison:", payload_dict)
+
+        baseline_config = payload_dict.get('baseline', {})
+        new_config = payload_dict.get('newConfig', {})
         
         if not baseline_config or not new_config:
             return {"status": "error", "error": "Both baseline and newConfig are required"}
@@ -130,27 +132,31 @@ async def run_comparison(request: Request):
         return {"status": "error", "error": str(e)}
 
 
-@router.post("/run-simulation")
-async def run_simulation(request: Request):
+@router.post("/run-simulation", response_model=SimulationRunResponse)
+async def run_simulation(payload: RunSimulationRequest):
     # Parse the incoming JSON payload first
-    payload = await request.json()
+    payload_dict = payload.model_dump(by_alias=True)
     
     # Create user-defined stations file if stations are provided
     user_stations_path = data_dir / "stations_with_apparatus_by_user.csv"
-    if 'stations' in payload and payload['stations']:
-        create_stations_csv_from_payload(payload['stations'], user_stations_path)
+    if 'stations' in payload_dict and payload_dict['stations']:
+        create_stations_csv_from_payload(payload_dict['stations'], user_stations_path)
     
     # Determine incident file path based on payload
     incidents_path = str(data_dir / "incidents_small.csv")  # default
-    incident_type= payload.get('incidentType', 'fire')
+    incident_type = payload_dict.get('incident_type', 'fire')
+
+    # Ensure these exist for log directory naming even when dateRange isn't provided.
+    start_date = "NA"
+    end_date = "NA"
     
-    if payload.get('models', {}).get('incident') == 'historical_incidents':
+    if payload_dict.get('models', {}).get('incident') == 'historical_incidents':
         # Use the filtered incidents from get-incidents endpoint
-        date_range = payload.get('dateRange', {})
-        if date_range.get('startDate') and date_range.get('endDate'):
+        date_range = payload_dict.get('date_range', {}) or {}
+        if date_range.get('start_date') and date_range.get('end_date'):
             
-            start_date = date_range['startDate'][:10]  # Extract date part (YYYY-MM-DD)
-            end_date = date_range['endDate'][:10]
+            start_date = date_range['start_date'][:10]  # Extract date part (YYYY-MM-DD)
+            end_date = date_range['end_date'][:10]
             query_hash = hashlib.md5(f"historical_incidents_{start_date}_{end_date}".encode()).hexdigest()
             query_filename = f"historical_{start_date}_{end_date}_{query_hash[:8]}.csv"
             query_path = data_dir / "incidents" / "historical" / incident_type / "query" / query_filename
@@ -158,12 +164,12 @@ async def run_simulation(request: Request):
                 incidents_path = str(query_path)
                 print(f"Using filtered incidents: {incidents_path}")
     
-    if payload.get('models', {}).get('incident') == 'synthetic_incidents':
+    if payload_dict.get('models', {}).get('incident') == 'synthetic_incidents':
         # Use synthetic incidents file
-        date_range = payload.get('dateRange', {})
-        if date_range.get('startDate') and date_range.get('endDate'):
-            start_date = date_range['startDate'][:10]  # Extract date part (YYYY-MM-DD)
-            end_date = date_range['endDate'][:10]
+        date_range = payload_dict.get('date_range', {})
+        if date_range.get('start_date') and date_range.get('end_date'):
+            start_date = date_range['start_date'][:10]  # Extract date part (YYYY-MM-DD)
+            end_date = date_range['end_date'][:10]
             query_hash = hashlib.md5(f"synthetic_incidents_{start_date}_{end_date}".encode()).hexdigest()
             query_filename = f"synthetic_{start_date}_{end_date}_{query_hash[:8]}.csv"
             query_path = data_dir / "incidents" / "synthetic" / incident_type / "query" / query_filename
@@ -174,31 +180,34 @@ async def run_simulation(request: Request):
     
     # Map dispatch policy from payload
     dispatch_policy = "FIREBEATS"  # default
-    if payload.get('dispatchPolicy') == 'nearest':
+    if payload_dict.get('dispatch_policy') == 'nearest':
         dispatch_policy = "NEAREST"
-    elif payload.get('models', {}).get('dispatch') == 'nearest':
+    elif payload_dict.get('models', {}).get('dispatch') == 'nearest':
         dispatch_policy = "NEAREST"
         
-    travel_time_model = payload.get('models', {}).get('travelTime', 'OSRM')
+    travel_time_model = payload_dict.get('models', {}).get('travelTime', 'OSRM')
     if travel_time_model == 'ARCGIS':
         travel_time_model = "OSRM"
 
     # Map fire model type from payload
     fire_model_type = "ML"  # default
-    service_time_model = payload.get('models', {}).get('serviceTime', 'ml_based')
+    service_time_model = payload_dict.get('models', {}).get('serviceTime', 'ml_based')
     if service_time_model == 'ml_based':
         fire_model_type = "ML"
     elif service_time_model == 'constant':
         fire_model_type = "CONSTANT"
     elif service_time_model == 'empirical_servicetimes':
         fire_model_type = "HISTORICAL"
-    station_data_option = payload.get('stationData', 'default_stations')
+    station_data_option = payload_dict.get('station_data', 'default_stations')
 
     #create log directory based on configuration and date-range
-    if station_data_option == 'default_stations':
-        logs_dir_save = logs_dir / f"{dispatch_policy}_{fire_model_type}_{travel_time_model}_{start_date}_{end_date}"
-    else:
-        logs_dir_save = logs_dir / station_data_option / f"{dispatch_policy}_{fire_model_type}_{travel_time_model}_{start_date}_{end_date}"
+    station_data_option = station_data_option or "default"
+    dispatch_policy = dispatch_policy or "default"
+    fire_model_type = fire_model_type or "default"
+    travel_time_model = travel_time_model or "default"
+    start_date = start_date or "NA"
+    end_date = end_date or "NA"
+    logs_dir_save = logs_dir / station_data_option / f"{dispatch_policy}_{fire_model_type}_{travel_time_model}_{start_date}_{end_date}"
     logs_dir_save.mkdir(parents=True, exist_ok=True)
     # Define the JSON configuration
     await asyncio.sleep(1)
@@ -212,14 +221,14 @@ async def run_simulation(request: Request):
         "TRAVEL_TIME_MODEL_TYPE": travel_time_model,
         
         "INCIDENTS_CSV_PATH": incidents_path,
-        "APPARATUS_CSV_PATH": str(user_stations_path if user_stations_path.exists() else constants.DATA_DIR / "stations_with_apparatus.csv"),
-        "BOUNDS_GEOJSON_PATH": str(constants.DATA_DIR / "bounds.geojson"),
-        "NFD_RESPONSE_CSV_PATH": str(constants.DATA_DIR / "NFDResponse.csv"),
-        "RESOLUTION_STATS_CSV_PATH": str(constants.DATA_DIR / "response_time_summary2.csv"),
+        "APPARATUS_CSV_PATH": str(user_stations_path if user_stations_path.exists() else data_dir / "stations_with_apparatus.csv"),
+        "BOUNDS_GEOJSON_PATH": str(data_dir / "bounds.geojson"),
+        "NFD_RESPONSE_CSV_PATH": str(data_dir / "NFDResponse.csv"),
+        "RESOLUTION_STATS_CSV_PATH": str(data_dir / "response_time_summary2.csv"),
         
-        "MEAN_MATRIX_PATH": str(constants.DATA_DIR / "interpolation_fire/mean_zone_travel_time_matrix.json") if incident_type == 'fire' else str(constants.DATA_DIR / "interpolation_data/mean_zone_travel_time_matrix.json"),
-        "STD_MATRIX_PATH": str(constants.DATA_DIR / "interpolation_fire/std_zone_travel_time_matrix.json") if incident_type == 'fire' else str(constants.DATA_DIR / "interpolation_data/std_zone_travel_time_matrix.json"),
-        "ZONE_INFO_PATH": str(constants.DATA_DIR / "interpolation_fire/zone_fire_station_info.json") if incident_type == 'fire' else str(constants.DATA_DIR / "interpolation_data/zone_fire_station_info.json"),
+        "MEAN_MATRIX_PATH": str(data_dir / "interpolation_fire/mean_zone_travel_time_matrix.json") if incident_type == 'fire' else str(data_dir / "interpolation_data/mean_zone_travel_time_matrix.json"),
+        "STD_MATRIX_PATH": str(data_dir / "interpolation_fire/std_zone_travel_time_matrix.json") if incident_type == 'fire' else str(data_dir / "interpolation_data/std_zone_travel_time_matrix.json"),
+        "ZONE_INFO_PATH": str(data_dir / "interpolation_fire/zone_fire_station_info.json") if incident_type == 'fire' else str(data_dir / "interpolation_data/zone_fire_station_info.json"),
 
         "REPORT_CSV_PATH": str(logs_dir_save / "incident_report.csv"),
         "STATION_REPORT_CSV_PATH": str(logs_dir_save / "station_report.csv"),
@@ -227,18 +236,37 @@ async def run_simulation(request: Request):
         "DISTANCE_MATRIX_PATH": str(logs_dir / "distance_matrix.bin"),
         "MATRIX_CSV_PATH": str(logs_dir / "matrix.csv"),
         "FIREBEATS_MATRIX_PATH": str(logs_dir / "beats.bin"),
-        "ZONE_MAP_PATH": str(constants.DATA_DIR / "zones.csv"),
-        "BEATS_SHAPEFILE_PATH": str(constants.DATA_DIR / "beats_shpfile.geojson"),
+        "ZONE_MAP_PATH": str(data_dir / "zones.csv"),
+        "BEATS_SHAPEFILE_PATH": str(data_dir / "beats_shpfile.geojson"),
         "RANDOM_SEED": 42,
         "PYTHON_PATH": "../../venvBOC/bin/python"
     }
 
 
     # Update config with any direct overrides from the payload (excluding processed fields)
-    config_overrides = {k: v for k, v in payload.items() 
-                       if k not in ['stations', 'dateRange', 'models', 'dispatchPolicy', 'stationData', 
-                                   'selectedIncidentFile', 'selectedStationFile', 'responseTime', 
-                                   'maxDistance', 'options']}
+    config_overrides = {
+        k: v
+        for k, v in payload_dict.items()
+        if k
+        not in [
+            # snake_case
+            'stations',
+            'date_range',
+            'models',
+            'dispatch_policy',
+            'station_data',
+            # camelCase (backward compatibility)
+            'dateRange',
+            'dispatchPolicy',
+            'stationData',
+            # other historical exclusions
+            'selectedIncidentFile',
+            'selectedStationFile',
+            'responseTime',
+            'maxDistance',
+            'options',
+        ]
+    }
     config.update(config_overrides)
     
 
@@ -281,7 +309,7 @@ async def run_simulation(request: Request):
         station_report, total_incidents, average_response_time, coverage_percent, vehicle_json, P90_continuous = summarize_station_report_as_json(config['STATION_REPORT_CSV_PATH'], config['REPORT_CSV_PATH'])
         average_response_time_per_incident_type = calculate_average_response_times_by_incident_type(config['STATION_REPORT_CSV_PATH'], config['REPORT_CSV_PATH'],incidents_path)
         print("Simulation completed successfully.")
-        if (station_data_option == 'default_stations')&(payload.get('models', {}).get('incident') == 'historical_incidents'):
+        if (station_data_option == 'default_stations') & (payload_dict.get('models', {}).get('incident') == 'historical_incidents'):
             if incident_type == 'fire':
                 evaluation= evaluate_simulation_performance(config['REPORT_CSV_PATH'], config['STATION_REPORT_CSV_PATH'], data_dir / "incident_resolution_times_fire.csv", incident_type='fire')
                 

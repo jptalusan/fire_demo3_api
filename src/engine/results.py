@@ -334,9 +334,9 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
 
             vehicle_json.append({
                 station_id: {
-                    "travel time mean": travel_time_mean,
-                    "incident count": incident_count,
-                    "travel time p90": travel_time_p90
+                    "travel_time_mean": travel_time_mean,
+                    "incident_count": incident_count,
+                    "travel_time_p90": travel_time_p90
                 }
             })
 
@@ -354,12 +354,12 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
 
             summary_json.append({
                 station_id: {
-                    "travel time mean": travel_time_mean,
-                    "incident count": incident_count,
-                    "travel times": travel_times,
-                    "average service time": average_service_time,
-                    "service times": service_times,
-                    "travel time p90": travel_time_p90
+                    "travel_time_mean": travel_time_mean,
+                    "incident_count": incident_count,
+                    "travel_times": travel_times,
+                    "average_service_time": average_service_time,
+                    "service_times": service_times,
+                    "travel_time_p90": travel_time_p90
                 }
             })
     
@@ -392,20 +392,20 @@ def calculate_average_response_times_by_incident_type(station_report_path, incid
     merged_df=incident_report.merge(firstdf[['IncidentIndex','ArrivalTime','TravelTimeToIncident']], on='IncidentIndex', how='inner')
     merged_df=merged_df.merge(incident_data[['incident_id','incident_type']], left_on='IncidentID', right_on='incident_id', how='inner')
     type_summary = merged_df.groupby('incident_type').agg(
-        AverageTravelTime=('TravelTimeToIncident', 'mean'),
-        P90TravelTime=('TravelTimeToIncident', lambda x: x.quantile(0.9)),
-        IncidentCount=('IncidentID', 'count')
+        average_travel_time=('TravelTimeToIncident', 'mean'),
+        p90_travel_time=('TravelTimeToIncident', lambda x: x.quantile(0.9)),
+        incident_count=('IncidentID', 'count')
     )
   
-    type_summary.sort_values(by='IncidentCount', ascending=False, inplace=True)
+    type_summary.sort_values(by='incident_count', ascending=False, inplace=True)
     type_summary=type_summary.head(10)
     summary_json = []
     for incident_type, row in type_summary.iterrows():
         summary_json.append({
             incident_type: {
-                "average travel time": float(row["AverageTravelTime"]),
-                "travel time p90": float(row["P90TravelTime"]),
-                "incident count": int(row["IncidentCount"])
+                "average_travel_time": float(row["average_travel_time"]),
+                "p90_travel_time": float(row["p90_travel_time"]),
+                "incident_count": int(row["incident_count"])
         
             }
         })

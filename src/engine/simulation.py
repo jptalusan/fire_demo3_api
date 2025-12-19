@@ -351,10 +351,10 @@ def calculate_comparison_stats(baseline_result, new_result):
         baseline_data = baseline_incident_types.get(incident_type, {})
         new_data = new_incident_types.get(incident_type, {})
         
-        baseline_time = baseline_data.get('average travel time', 0)
-        new_time = new_data.get('average travel time', 0)
-        baseline_count = baseline_data.get('incident count', 0)
-        new_count = new_data.get('incident count', 0)
+        baseline_time = baseline_data.get('average_travel_time', 0)
+        new_time = new_data.get('average_travel_time', 0)
+        baseline_count = baseline_data.get('incident_count', 0)
+        new_count = new_data.get('incident_count', 0)
         
         incident_comparison = {
             "incident_type": incident_type,

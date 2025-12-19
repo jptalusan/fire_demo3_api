@@ -4,7 +4,6 @@ import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
-import src.core.config as config
 from src.api.main import api_router
 
 logger = logging.getLogger("...")
