@@ -136,6 +136,8 @@ async def run_comparison(payload: RunComparisonRequest):
 async def run_simulation(payload: RunSimulationRequest):
     # Parse the incoming JSON payload first
     payload_dict = payload.model_dump(by_alias=True)
+
+    models = payload_dict.get('models') or {}
     
     # Create user-defined stations file if stations are provided
     user_stations_path = data_dir / "stations_with_apparatus_by_user.csv"
@@ -144,13 +146,13 @@ async def run_simulation(payload: RunSimulationRequest):
     
     # Determine incident file path based on payload
     incidents_path = str(data_dir / "incidents_small.csv")  # default
-    incident_type = payload_dict.get('incident_type', 'fire')
+    incident_type = payload_dict.get('incident_type') or 'fire'
 
     # Ensure these exist for log directory naming even when dateRange isn't provided.
     start_date = "NA"
     end_date = "NA"
     
-    if payload_dict.get('models', {}).get('incident') == 'historical_incidents':
+    if models.get('incident') == 'historical_incidents':
         # Use the filtered incidents from get-incidents endpoint
         date_range = payload_dict.get('date_range', {}) or {}
         if date_range.get('start_date') and date_range.get('end_date'):
@@ -164,9 +166,9 @@ async def run_simulation(payload: RunSimulationRequest):
                 incidents_path = str(query_path)
                 print(f"Using filtered incidents: {incidents_path}")
     
-    if payload_dict.get('models', {}).get('incident') == 'synthetic_incidents':
+    if models.get('incident') == 'synthetic_incidents':
         # Use synthetic incidents file
-        date_range = payload_dict.get('date_range', {})
+        date_range = payload_dict.get('date_range', {}) or {}
         if date_range.get('start_date') and date_range.get('end_date'):
             start_date = date_range['start_date'][:10]  # Extract date part (YYYY-MM-DD)
             end_date = date_range['end_date'][:10]
@@ -182,16 +184,16 @@ async def run_simulation(payload: RunSimulationRequest):
     dispatch_policy = "FIREBEATS"  # default
     if payload_dict.get('dispatch_policy') == 'nearest':
         dispatch_policy = "NEAREST"
-    elif payload_dict.get('models', {}).get('dispatch') == 'nearest':
+    elif models.get('dispatch') == 'nearest':
         dispatch_policy = "NEAREST"
         
-    travel_time_model = payload_dict.get('models', {}).get('travelTime', 'OSRM')
+    travel_time_model = models.get('travelTime', 'OSRM')
     if travel_time_model == 'ARCGIS':
         travel_time_model = "OSRM"
 
     # Map fire model type from payload
     fire_model_type = "ML"  # default
-    service_time_model = payload_dict.get('models', {}).get('serviceTime', 'ml_based')
+    service_time_model = models.get('serviceTime', 'ml_based')
     if service_time_model == 'ml_based':
         fire_model_type = "ML"
     elif service_time_model == 'constant':
@@ -242,7 +244,6 @@ async def run_simulation(payload: RunSimulationRequest):
         "PYTHON_PATH": "../../venvBOC/bin/python"
     }
 
-
     # Update config with any direct overrides from the payload (excluding processed fields)
     config_overrides = {
         k: v
@@ -257,8 +258,6 @@ async def run_simulation(payload: RunSimulationRequest):
             'station_data',
             # camelCase (backward compatibility)
             'dateRange',
-            'dispatchPolicy',
-            'stationData',
             # other historical exclusions
             'selectedIncidentFile',
             'selectedStationFile',
@@ -309,7 +308,7 @@ async def run_simulation(payload: RunSimulationRequest):
         station_report, total_incidents, average_response_time, coverage_percent, vehicle_json, P90_continuous = summarize_station_report_as_json(config['STATION_REPORT_CSV_PATH'], config['REPORT_CSV_PATH'])
         average_response_time_per_incident_type = calculate_average_response_times_by_incident_type(config['STATION_REPORT_CSV_PATH'], config['REPORT_CSV_PATH'],incidents_path)
         print("Simulation completed successfully.")
-        if (station_data_option == 'default_stations') & (payload_dict.get('models', {}).get('incident') == 'historical_incidents'):
+        if (station_data_option == 'default_stations') & (models.get('incident') == 'historical_incidents'):
             if incident_type == 'fire':
                 evaluation= evaluate_simulation_performance(config['REPORT_CSV_PATH'], config['STATION_REPORT_CSV_PATH'], data_dir / "incident_resolution_times_fire.csv", incident_type='fire')
                 

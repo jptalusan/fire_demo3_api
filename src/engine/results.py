@@ -404,7 +404,7 @@ def calculate_average_response_times_by_incident_type(station_report_path, incid
         summary_json.append({
             incident_type: {
                 "average_travel_time": float(row["average_travel_time"]),
-                "p90_travel_time": float(row["p90_travel_time"]),
+                "travel_time_p90": float(row["p90_travel_time"]),
                 "incident_count": int(row["incident_count"])
         
             }

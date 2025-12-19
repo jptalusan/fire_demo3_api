@@ -29,7 +29,7 @@ async def get_incidents(request: Request):
         date_range = filters.get("dateRange", {})
         start_date = date_range.get("start")
         end_date = date_range.get("end")
-        incident_type= filters.get("incidentType")
+        incident_type= filters.get("incident_type")
         
         if not start_date or not end_date:
             return {"status": "error", "error": "Date range with start and end dates is required"}
@@ -137,7 +137,7 @@ async def generate_incidents(request: Request):
         date_range = payload.get("dateRange", {})
         start_date = date_range.get("startDate") or date_range.get("start")
         end_date = date_range.get("endDate") or date_range.get("end")
-        incident_type = payload.get("incidentType", "fire")  # Extract incident type from payload
+        incident_type = payload.get("incident_type", "fire")  # Extract incident type from payload
         
         print(f"Generating {incident_type} incidents from {start_date} to {end_date}")
 
@@ -149,7 +149,6 @@ async def generate_incidents(request: Request):
         start_date_str = start_date[:10] if 'T' in start_date else start_date
         end_date_str = end_date[:10] if 'T' in end_date else end_date
         
-        # Generate a unique filename based on the query parameters (matching run-simulation2 logic)
         query_hash = hashlib.md5(f"synthetic_incidents_{start_date_str}_{end_date_str}".encode()).hexdigest()
         query_filename = f"synthetic_{start_date_str}_{end_date_str}_{query_hash[:8]}.csv"
         

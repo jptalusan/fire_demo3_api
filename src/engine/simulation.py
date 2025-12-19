@@ -78,7 +78,7 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
         
         # Determine incident file path based on config
         incidents_path = str(data_dir / "incidents_small.csv")  # default
-        incident_type = config.get('incidentType', 'fire')
+        incident_type = config.get('incident_type', 'fire')
         
         if config.get('models', {}).get('incident') == 'historical_incidents':
             # Use the filtered incidents from get-incidents endpoint
@@ -108,7 +108,7 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
         
         # Map dispatch policy from config
         dispatch_policy = "FIREBEATS"  # default
-        if config.get('dispatchPolicy') == 'nearest':
+        if config.get('dispatch_policy') == 'nearest':
             dispatch_policy = "NEAREST"
         elif config.get('models', {}).get('dispatch') == 'nearest':
             dispatch_policy = "NEAREST"

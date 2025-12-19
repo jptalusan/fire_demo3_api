@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, RootModel
 
 
 # ----------------------------
@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class DateRange(BaseModel):
-    start_date: str
-    end_date: str
+    start_date: str = Field(validation_alias=AliasChoices("start_date", "startDate"))
+    end_date: str = Field(validation_alias=AliasChoices("end_date", "endDate"))
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -48,12 +48,14 @@ class RunSimulationRequest(BaseModel):
     We keep backwards-compatibility by allowing extra fields.
     """
 
-    stations: Optional[List[StationInput]] = None
-    incident_type: Optional[Literal["fire", "ems_fire"]] = None
+    stations: Optional[List[StationInput]] = Field(
+        default=None, validation_alias=AliasChoices("stations")
+    )
+    incident_type: Optional[Literal["fire", "ems_fire"]] = Field(default=None)
     models: Optional[ModelOptions] = None
-    dispatch_policy: Optional[str] = None
-    station_data: Optional[str] = None
-    date_range: Optional[DateRange] = None
+    dispatch_policy: Optional[str] = Field(default=None)
+    station_data: Optional[str] = Field(default=None)
+    date_range: Optional[DateRange] = Field(default=None)
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
@@ -111,7 +113,7 @@ class IncidentTypeSummary(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-
+#TODO: Str here should or might be an enum?
 class IncidentTypeReportEntry(RootModel[Dict[str, IncidentTypeSummary]]):
     pass
 
