@@ -45,39 +45,41 @@ async def run_comparison(payload: RunComparisonRequest):
         baseline_temp_dir.mkdir(parents=True, exist_ok=True)
         new_config_temp_dir.mkdir(parents=True, exist_ok=True)
         
-        # ==================== RUN BASELINE SIMULATION ====================
-        print("\n=== Running Baseline Simulation ===")
-        baseline_result = await run_simulation_internal(
+        # ==================== RUN SIMULATIONS IN PARALLEL ====================
+        print("\n=== Running Simulations in Parallel ===")
+        baseline_task = run_simulation_internal(
             config=baseline_config,
             data_dir=data_dir,
             logs_dir=baseline_temp_dir,
             models_dir=models_dir,
             config_name="baseline"
         )
-        
-        if baseline_result.get('status') != 'success':
-            return {
-                "status": "error",
-                "error": "Baseline simulation failed",
-                "baseline_result": baseline_result
-            }
-        
-        # ==================== RUN NEW CONFIGURATION SIMULATION ====================
-        print("\n=== Running New Configuration Simulation ===")
-        new_result = await run_simulation_internal(
+
+        new_task = run_simulation_internal(
             config=new_config,
             data_dir=data_dir,
             logs_dir=new_config_temp_dir,
             models_dir=models_dir,
             config_name="newconfig"
         )
-        
+
+        # Await both tasks to complete
+        baseline_result, new_result = await asyncio.gather(baseline_task, new_task)
+
+        if baseline_result.get('status') != 'success':
+            return {
+                "status": "error",
+                "error": "Baseline simulation failed",
+                "baseline_result": baseline_result
+            }
+
         if new_result.get('status') != 'success':
             return {
                 "status": "error",
                 "error": "New configuration simulation failed",
                 "new_result": new_result
             }
+
         print("\n=== Both Simulations Completed Successfully ===")
 
         
