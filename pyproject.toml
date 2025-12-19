@@ -1,13 +1,18 @@
 [project]
-name = "fire-demo3-api"
+name = "fire-simulator-backend"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi",
-    "uvicorn",
-    "pandas",
+    "fastapi[standard]>=0.115.8",
+    "uvicorn[standard]>=0.22",
+    "pandas>=2.3.3",
     "geopandas>=1.1.1",
     "matplotlib>=3.10.6",
+    "ipykernel>=7.0.1",
+    "scikit-learn>=1.7.2",
+    "shapely>=2.1.2",
+    "python-dotenv>=1.0",
+    "pydantic>=2.0",
 ]
