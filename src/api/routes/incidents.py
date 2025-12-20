@@ -1,35 +1,47 @@
 """FastAPI application for simulation-db API."""
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Body, Response
 import hashlib
-from pathlib import Path
 import io
 import pandas as pd
 import src.core.config as constants
 from src.engine.incidents import predict_incidents_with_types_and_coordinates
+from src.schemas.incidents import GenerateIncidentsRequest, GetIncidentsRequest, ProcessIncidentsResponse
 
 router = APIRouter()
 
 data_dir = constants.DATA_DIR
 
-@router.post("/get-incidents")
-async def get_incidents(request: Request):
+@router.post(
+    "/get-incidents",
+    responses={
+        200: {
+            "content": {
+                "text/csv": {
+                    "schema": {"type": "string"},
+                }
+            },
+            "description": "CSV data",
+        }
+    },
+)
+async def get_incidents(payload: GetIncidentsRequest):
     try:
-        
-        body = await request.json()
-        print(body)
-        model_id = body["modelId"]
-        filters = body.get("filters", {})
+        payload_dict = payload.model_dump()
+        print(payload_dict)
+
+        model_id = payload.model_id
+        filters = payload.filters.model_dump()
         
         # Only handle historical_incidents model
         if model_id != "historical_incidents":
             return {"status": "error", "error": "Only historical_incidents model is supported"}
         
         # Extract date range from filters
-        date_range = filters.get("dateRange", {})
+        date_range = filters.get("date_range", {})
         start_date = date_range.get("start")
         end_date = date_range.get("end")
-        incident_type= filters.get("incident_type")
+        incident_type = filters.get("incident_type")
         
         if not start_date or not end_date:
             return {"status": "error", "error": "Date range with start and end dates is required"}
@@ -86,13 +98,9 @@ async def get_incidents(request: Request):
         print(f"Error in get_incidents: {str(e)}")
         return {"status": "error", "error": str(e)}
 
-@router.post("/process-incidents")
-async def process_incidents(request: Request):
+@router.post("/process-incidents", response_model=ProcessIncidentsResponse)
+async def process_incidents(csv_data: str = Body(..., media_type="text/csv")):
     try:
-        # Get raw CSV content from request body
-        csv_data = await request.body()
-        csv_data = csv_data.decode('utf-8')
-        
         if not csv_data.strip():
             return {"status": "error", "error": "No CSV data provided"}
         
@@ -125,19 +133,30 @@ async def process_incidents(request: Request):
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-@router.post("/generate-incidents")
-async def generate_incidents(request: Request):
+@router.post(
+    "/generate-incidents",
+    responses={
+        200: {
+            "content": {
+                "text/csv": {
+                    "schema": {"type": "string"},
+                }
+            },
+            "description": "CSV data",
+        }
+    },
+)
+async def generate_incidents(payload: GenerateIncidentsRequest):
 
     from fastapi import Response
     
     try:
-        payload = await request.json()
-        print(payload)
+        payload_dict = payload.model_dump()
+        print(payload_dict)
 
-        date_range = payload.get("dateRange", {})
-        start_date = date_range.get("startDate") or date_range.get("start")
-        end_date = date_range.get("endDate") or date_range.get("end")
-        incident_type = payload.get("incident_type", "fire")  # Extract incident type from payload
+        start_date = payload.date_range.start
+        end_date = payload.date_range.end
+        incident_type = payload.incident_type
         
         print(f"Generating {incident_type} incidents from {start_date} to {end_date}")
 
@@ -152,8 +171,7 @@ async def generate_incidents(request: Request):
         query_hash = hashlib.md5(f"synthetic_incidents_{start_date_str}_{end_date_str}".encode()).hexdigest()
         query_filename = f"synthetic_{start_date_str}_{end_date_str}_{query_hash[:8]}.csv"
         
-        # Define paths
-        data_dir = Path(__file__).parent.parent / "data"
+        # Define paths (use the same DATA_DIR as the rest of the app)
         query_dir = data_dir / "incidents" / "synthetic" / incident_type / "query"  # Use synthetic directory
         query_path = query_dir / query_filename
         

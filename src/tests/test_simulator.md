@@ -109,3 +109,32 @@ curl -sS -X POST "http://127.0.0.1:8000/api/engine/run-comparison" \
     }
   }'
 ```
+
+## Generate incidents historical
+```
+curl -sS -X POST "http://127.0.0.1:8000/api/incidents/get-incidents" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "historical_incidents",
+    "filters": {
+      "date_range": {
+        "start": "2023-11-15",
+        "end": "2023-12-18"
+      },
+      "incident_type": "fire"
+    }
+  }'
+```
+
+## Generate incidents historical
+```
+curl -sS -X POST "http://127.0.0.1:8000/api/incidents/generate-incidents" \
+  -H "Content-Type: application/json" \
+  -d '{
+      "date_range": {
+        "start": "2023-11-15",
+        "end": "2023-12-18"
+      },
+      "incident_type": "fire"
+  }'
+```
