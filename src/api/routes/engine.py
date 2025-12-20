@@ -20,7 +20,7 @@ router = APIRouter()
 # Define paths
 data_dir = constants.DATA_DIR
 logs_dir = constants.BASE_DIR / "logs"
-models_dir = constants.BASE_DIR / "models"
+models_dir = constants.DATA_DIR / "models"
 
 @router.post("/run-comparison", response_model=RunComparisonResponse)
 async def run_comparison(payload: RunComparisonRequest):

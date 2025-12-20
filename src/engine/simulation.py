@@ -52,8 +52,6 @@ def create_stations_csv_from_payload(stations_data, output_path):
     print(f"Created user stations file: {output_path}")
 
 
-
-
 async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config_name="simulation"):
     """
     Internal function to run a single simulation with the given configuration.

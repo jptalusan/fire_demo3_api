@@ -5,6 +5,7 @@ import json
 import os
 import geopandas as gpd
 from pathlib import Path
+import src.core.config as constants
 
 # Enhanced incident prediction function with random category/type assignment and coordinates
 def predict_incidents_with_types_and_coordinates(start_date, end_date, incident_type='fire'):
@@ -247,7 +248,7 @@ def load_incident_prediction_system(load_directory):
     """
     try:
         # Import here to avoid module-level import issues with uvicorn
-        from models.survival_forecaster import SurvivalRegressionForecaster
+        from src.models.survival_forecaster import SurvivalRegressionForecaster
         
         # Make the class available in the global namespace for pickle
         import sys
@@ -295,17 +296,16 @@ components_cache = {}
 def get_prediction_components(incident_type='fire'):
     """Lazy loading of prediction system components based on incident type"""
     global components_cache
-    
     # Check if this incident type is already cached
     if incident_type not in components_cache:
         try:
             # Determine the correct model directory based on incident type
             if incident_type == 'fire':
-                models_dir = Path(__file__).parent.parent / "models" / "incident_prediction_system_fire"
+                models_dir = constants.DATA_DIR / "models" / "incident_prediction_system_fire"
             elif incident_type == 'ems_fire':
-                models_dir = Path(__file__).parent.parent / "models" / "incident_prediction_system"
+                models_dir = constants.DATA_DIR / "models" / "incident_prediction_system"
             else:
-                models_dir = Path(__file__).parent.parent / "models" / "incident_prediction_system"
+                models_dir = constants.DATA_DIR / "models" / "incident_prediction_system"
                 
             print(f"Loading incident prediction system for '{incident_type}' from {models_dir}")
             components_cache[incident_type] = load_incident_prediction_system(str(models_dir))
