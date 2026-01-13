@@ -6,6 +6,67 @@ import src.core.config as constants
 
 from src.engine.results import summarize_station_report_as_json, calculate_average_response_times_by_incident_type
 
+
+def get_or_create_historical_incidents(start_date: str, end_date: str, incident_type: str = "fire", data_dir=None):
+    """
+    Get or create filtered historical incidents CSV file.
+    
+    Args:
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        incident_type: Either "fire" or "ems_fire"
+        data_dir: Path to data directory (uses constants.DATA_DIR if None)
+    
+    Returns:
+        str: Path to the filtered incidents CSV file
+    
+    Raises:
+        ValueError: If no incidents found in the date range
+    """
+    if data_dir is None:
+        data_dir = constants.DATA_DIR
+    
+    # Generate unique filename based on date range
+    query_hash = hashlib.md5(f"historical_incidents_{start_date}_{end_date}".encode()).hexdigest()
+    query_filename = f"historical_{start_date}_{end_date}_{query_hash[:8]}.csv"
+    query_path = data_dir / "incidents" / "historical" / incident_type / "query" / query_filename
+    
+    # Return if file already exists
+    if query_path.exists():
+        print(f"Using existing filtered incidents: {query_path}")
+        return str(query_path)
+    
+    # Create the file
+    query_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Determine source file based on incident type
+    if incident_type == "ems_fire":
+        source_file = data_dir / "incidents_export_apparatus.csv"
+    else:
+        source_file = data_dir / "incidents_export_apparatus_fire.csv"
+    
+    # Filter the source file based on date range
+    df = pd.read_csv(source_file)
+    df['datetime'] = pd.to_datetime(df['datetime'])
+    
+    # Filter by date range
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date)
+    filtered_df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
+    
+    if filtered_df.empty:
+        raise ValueError(f"No incidents found in date range {start_date} to {end_date}")
+    
+    # Convert back to string format for CSV
+    filtered_df['datetime'] = filtered_df['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Save the filtered query
+    filtered_df.to_csv(query_path, index=False)
+    print(f"Created filtered incidents file: {query_filename} with {len(filtered_df)} incidents")
+    
+    return str(query_path)
+
+
 def create_stations_csv_from_payload(stations_data, output_path):
     """
     Create a stations_with_apparatus.csv file from the payload stations data
@@ -85,35 +146,10 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
             if date_range.get('start_date') and date_range.get('end_date'):
                 start_date = date_range['start_date'][:10]  # Extract date part (YYYY-MM-DD)
                 end_date = date_range['end_date'][:10]
-                query_hash = hashlib.md5(f"historical_incidents_{start_date}_{end_date}".encode()).hexdigest()
-                query_filename = f"historical_{start_date}_{end_date}_{query_hash[:8]}.csv"
-                query_path = data_dir / "incidents" / "historical" / incident_type / "query" / query_filename
-                if not query_path.exists():
-                    query_path.parent.mkdir(parents=True, exist_ok=True)
-                    if incident_type == "ems_fire":
-                        source_file = data_dir / "incidents_export_apparatus.csv"
-                    else:
-                        source_file = data_dir / "incidents_export_apparatus_fire.csv"
-                    # Filter the source file based on date range and create the query file
-                    df = pd.read_csv(source_file)
-                    df['datetime'] = pd.to_datetime(df['datetime'])
-                    
-                    # Filter by date range
-                    start_dt = pd.to_datetime(start_date)
-                    end_dt = pd.to_datetime(end_date)
-                    filtered_df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
-                    
-                    if filtered_df.empty:
-                        return {"status": "error", "error": f"No incidents found in date range {start_date} to {end_date}"}
-                    
-                    # Convert back to string format for CSV
-                    filtered_df['datetime'] = filtered_df['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
-                    
-                    # Save the filtered query
-                    filtered_df.to_csv(query_path, index=False)
-                    print(f"Created filtered incidents file: {query_filename}")
-                incidents_path = str(query_path)
-                print(f"Using filtered incidents: {incidents_path}")
+                try:
+                    incidents_path = get_or_create_historical_incidents(start_date, end_date, incident_type, data_dir)
+                except ValueError as e:
+                    return {"status": "error", "error": str(e)}
         
         if config.get('models', {}).get('incident') == 'synthetic_incidents':
             # Use synthetic incidents file

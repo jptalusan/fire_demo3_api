@@ -7,7 +7,7 @@ import pandas as pd
 import src.core.config as constants
 from src.engine.incidents import predict_incidents_with_types_and_coordinates
 from src.schemas.incidents import GenerateIncidentsRequest, GetIncidentsRequest, ProcessIncidentsResponse
-
+from src.engine.simulation import get_or_create_historical_incidents
 router = APIRouter()
 
 data_dir = constants.DATA_DIR
@@ -46,52 +46,18 @@ async def get_incidents(payload: GetIncidentsRequest):
         if not start_date or not end_date:
             return {"status": "error", "error": "Date range with start and end dates is required"}
         
-        # Generate a unique filename based on the query parameters
-        query_hash = hashlib.md5(f"{model_id}_{start_date}_{end_date}".encode()).hexdigest()
-        query_filename = f"historical_{start_date}_{end_date}_{query_hash[:8]}.csv"
+        # Use the centralized helper function
         
-        # Define paths
-        query_dir = data_dir / "incidents" / "historical" / incident_type / "query"
-
-        query_path = query_dir / query_filename
-
         
-        if incident_type == "ems_fire":
-            source_file = data_dir / "incidents_export_apparatus.csv"
-        else:
-            source_file = data_dir / "incidents_export_apparatus_fire.csv"
+        try:
+            query_path = get_or_create_historical_incidents(start_date, end_date, incident_type, data_dir)
+        except ValueError as e:
+            return {"status": "error", "error": str(e)}
         
-        # Ensure query directory exists
-        query_dir.mkdir(parents=True, exist_ok=True)
+        # Read and return the CSV content
+        with open(query_path, 'r') as f:
+            csv_content = f.read()
         
-        # Check if the filtered query already exists
-        if query_path.exists():
-            print(f"Using cached query: {query_filename}")
-            # Read the existing filtered CSV
-            with open(query_path, 'r') as f:
-                csv_content = f.read()
-        else:
-            print(f"Creating new filtered query: {query_filename}")
-            # Load the source data and filter by date range
-            df = pd.read_csv(source_file)
-            df['datetime'] = pd.to_datetime(df['datetime'])
-            
-            # Filter by date range
-            start_dt = pd.to_datetime(start_date)
-            end_dt = pd.to_datetime(end_date)
-            filtered_df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
-            
-            if filtered_df.empty:
-                return {"status": "error", "error": f"No incidents found in date range {start_date} to {end_date}"}
-            
-            # Convert back to string format for CSV
-            filtered_df['datetime'] = filtered_df['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
-            
-            # Save the filtered query
-            filtered_df.to_csv(query_path, index=False)
-            csv_content = filtered_df.to_csv(index=False)
-
-        # Return the CSV content
         return Response(content=csv_content, media_type="text/csv")
         
     except Exception as e:
