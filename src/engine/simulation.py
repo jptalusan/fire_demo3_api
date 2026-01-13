@@ -2,6 +2,7 @@
 import hashlib
 import subprocess
 import pandas as pd
+import src.core.config as constants
 
 from src.engine.results import summarize_station_report_as_json, calculate_average_response_times_by_incident_type
 
@@ -80,29 +81,73 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
         
         if config.get('models', {}).get('incident') == 'historical_incidents':
             # Use the filtered incidents from get-incidents endpoint
-            date_range = config.get('dateRange', {})
-            if date_range.get('startDate') and date_range.get('endDate'):
-                start_date = date_range['startDate'][:10]  # Extract date part (YYYY-MM-DD)
-                end_date = date_range['endDate'][:10]
+            date_range = config.get('date_range', {})
+            if date_range.get('start_date') and date_range.get('end_date'):
+                start_date = date_range['start_date'][:10]  # Extract date part (YYYY-MM-DD)
+                end_date = date_range['end_date'][:10]
                 query_hash = hashlib.md5(f"historical_incidents_{start_date}_{end_date}".encode()).hexdigest()
                 query_filename = f"historical_{start_date}_{end_date}_{query_hash[:8]}.csv"
                 query_path = data_dir / "incidents" / "historical" / incident_type / "query" / query_filename
-                if query_path.exists():
-                    incidents_path = str(query_path)
-                    print(f"Using filtered incidents: {incidents_path}")
+                if not query_path.exists():
+                    query_path.parent.mkdir(parents=True, exist_ok=True)
+                    if incident_type == "ems_fire":
+                        source_file = data_dir / "incidents_export_apparatus.csv"
+                    else:
+                        source_file = data_dir / "incidents_export_apparatus_fire.csv"
+                    # Filter the source file based on date range and create the query file
+                    df = pd.read_csv(source_file)
+                    df['datetime'] = pd.to_datetime(df['datetime'])
+                    
+                    # Filter by date range
+                    start_dt = pd.to_datetime(start_date)
+                    end_dt = pd.to_datetime(end_date)
+                    filtered_df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
+                    
+                    if filtered_df.empty:
+                        return {"status": "error", "error": f"No incidents found in date range {start_date} to {end_date}"}
+                    
+                    # Convert back to string format for CSV
+                    filtered_df['datetime'] = filtered_df['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
+                    
+                    # Save the filtered query
+                    filtered_df.to_csv(query_path, index=False)
+                    print(f"Created filtered incidents file: {query_filename}")
+                incidents_path = str(query_path)
+                print(f"Using filtered incidents: {incidents_path}")
         
         if config.get('models', {}).get('incident') == 'synthetic_incidents':
             # Use synthetic incidents file
-            date_range = config.get('dateRange', {})
-            if date_range.get('startDate') and date_range.get('endDate'):
-                start_date = date_range['startDate'][:10]  # Extract date part (YYYY-MM-DD)
-                end_date = date_range['endDate'][:10]
+            date_range = config.get('date_range', {})
+            if date_range.get('start_date') and date_range.get('end_date'):
+                start_date = date_range['start_date'][:10]  # Extract date part (YYYY-MM-DD)
+                end_date = date_range['end_date'][:10]
                 query_hash = hashlib.md5(f"synthetic_incidents_{start_date}_{end_date}".encode()).hexdigest()
                 query_filename = f"synthetic_{start_date}_{end_date}_{query_hash[:8]}.csv"
-                query_path = data_dir / "incidents" / "synthetic" / incident_type / "query" / query_filename
-                if query_path.exists():
-                    incidents_path = str(query_path)
-                    print(f"Using synthetic incidents: {incidents_path}")
+                query_path = data_dir / "incidents" / "synthetic" / "query" / query_filename
+                if not query_path.exists():
+                    query_path.parent.mkdir(parents=True, exist_ok=True)
+                    from src.engine.incidents import predict_incidents_with_types_and_coordinates
+                    predicted_incidents_df = predict_incidents_with_types_and_coordinates(start_date, end_date, incident_type=incident_type)
+                
+                    # Convert DataFrame to list of dictionaries for CSV generation
+                    incidents = predicted_incidents_df.to_dict('records') if not predicted_incidents_df.empty else []
+                    
+                    # Convert to CSV format
+                    csv_header = "incident_id,lat,lon,incident_type,incident_level,datetime,category\n"
+                    csv_rows = []
+                    for incident in incidents:
+                        row = f"{incident['incident_id']},{incident['lat']},{incident['lon']},{incident['incident_type']},{incident['incident_level']},{incident['datetime']},{incident['category']}"
+                        csv_rows.append(row)
+                    
+                    csv_content = csv_header + "\n".join(csv_rows)
+                    
+                    # Save the synthetic query for future use
+                    with open(query_path, 'w') as f:
+                        f.write(csv_content)
+                    
+                    print(f"Generated {len(incidents)} synthetic incidents and saved to {query_filename}")
+                incidents_path = str(query_path)
+                print(f"Using synthetic incidents: {incidents_path}")
         
         # Map dispatch policy from config
         dispatch_policy = "FIREBEATS"  # default
@@ -126,9 +171,10 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
             fire_model_type = "HISTORICAL"
         
         # Define the simulator configuration
+        
         sim_config = {
-            "OSRM_URL": "http://localhost:8080/table/v1/driving/",
-            "BASE_OSRM_URL": "http://localhost:8080",
+            "OSRM_URL": f"http://{constants.OSRM_HOST}:{constants.OSRM_PORT}/table/v1/driving/",
+            "BASE_OSRM_URL": f"http://{constants.OSRM_HOST}:{constants.OSRM_PORT}",
             "DISPATCH_POLICY": dispatch_policy,
             "FIRE_MODEL_TYPE": fire_model_type,
             "MODEL_PATH": str(models_dir / "fire_incident_gb_model.onnx") if incident_type == 'fire' else str(models_dir / "ems_model" / "fire_incident_gb_model.onnx"),
