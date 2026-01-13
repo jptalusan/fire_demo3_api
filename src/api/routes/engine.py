@@ -3,9 +3,11 @@
 import asyncio
 import hashlib
 import subprocess
+import pandas as pd
 from fastapi import APIRouter
 
 import src.core.config as constants
+from src.engine.incidents import predict_incidents_with_types_and_coordinates
 from src.engine.results import calculate_average_response_times_by_incident_type, evaluate_simulation_performance, summarize_station_report_as_json
 from src.engine.simulation import calculate_comparison_stats, create_stations_csv_from_payload, run_simulation_internal
 from src.schemas.engine import (
@@ -138,6 +140,7 @@ async def run_comparison(payload: RunComparisonRequest):
 async def run_simulation(payload: RunSimulationRequest):
     # Parse the incoming JSON payload first
     payload_dict = payload.model_dump(by_alias=True)
+    
 
     models = payload_dict.get('models') or {}
     
@@ -164,9 +167,33 @@ async def run_simulation(payload: RunSimulationRequest):
             query_hash = hashlib.md5(f"historical_incidents_{start_date}_{end_date}".encode()).hexdigest()
             query_filename = f"historical_{start_date}_{end_date}_{query_hash[:8]}.csv"
             query_path = data_dir / "incidents" / "historical" / incident_type / "query" / query_filename
-            if query_path.exists():
-                incidents_path = str(query_path)
-                print(f"Using filtered incidents: {incidents_path}")
+            if not query_path.exists():
+                if incident_type == "ems_fire":
+                    source_file = data_dir / "incidents_export_apparatus.csv"
+                else:
+                    source_file = data_dir / "incidents_export_apparatus_fire.csv"
+                # Filter the source file based on date range and create the query file
+                df = pd.read_csv(source_file)
+                df['datetime'] = pd.to_datetime(df['datetime'])
+                
+                # Filter by date range
+                start_dt = pd.to_datetime(start_date)
+                end_dt = pd.to_datetime(end_date)
+                filtered_df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
+                
+                if filtered_df.empty:
+                    return {"status": "error", "error": f"No incidents found in date range {start_date} to {end_date}"}
+                
+                # Convert back to string format for CSV
+                filtered_df['datetime'] = filtered_df['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
+                
+                # Save the filtered query
+                filtered_df.to_csv(query_path, index=False)
+                print(f"Created filtered incidents file: {query_filename}")
+            incidents_path = str(query_path)
+            print(f"Using filtered incidents: {incidents_path}")
+            
+                
     
     if models.get('incident') == 'synthetic_incidents':
         # Use synthetic incidents file
@@ -177,9 +204,28 @@ async def run_simulation(payload: RunSimulationRequest):
             query_hash = hashlib.md5(f"synthetic_incidents_{start_date}_{end_date}".encode()).hexdigest()
             query_filename = f"synthetic_{start_date}_{end_date}_{query_hash[:8]}.csv"
             query_path = data_dir / "incidents" / "synthetic" / incident_type / "query" / query_filename
-            if query_path.exists():
-                incidents_path = str(query_path)
-                print(f"Using filtered incidents: {incidents_path}")
+            if not query_path.exists():
+                predicted_incidents_df = predict_incidents_with_types_and_coordinates(start_date, end_date, incident_type=incident_type)
+            
+                # Convert DataFrame to list of dictionaries for CSV generation
+                incidents = predicted_incidents_df.to_dict('records') if not predicted_incidents_df.empty else []
+                
+                # Convert to CSV format
+                csv_header = "incident_id,lat,lon,incident_type,incident_level,datetime,category\n"
+                csv_rows = []
+                for incident in incidents:
+                    row = f"{incident['incident_id']},{incident['lat']},{incident['lon']},{incident['incident_type']},{incident['incident_level']},{incident['datetime']},{incident['category']}"
+                    csv_rows.append(row)
+                
+                csv_content = csv_header + "\n".join(csv_rows)
+                
+                # Save the synthetic query for future use
+                with open(query_path, 'w') as f:
+                    f.write(csv_content)
+                
+                print(f"Generated {len(incidents)} synthetic incidents and saved to {query_filename}")
+            incidents_path = str(query_path)
+            print(f"Using filtered incidents: {incidents_path}")
             print(f"Using synthetic incidents: {incidents_path}")
     
     # Map dispatch policy from payload
@@ -318,13 +364,13 @@ async def run_simulation(payload: RunSimulationRequest):
                 evaluation= evaluate_simulation_performance(config['REPORT_CSV_PATH'], config['STATION_REPORT_CSV_PATH'], data_dir / "incident_resolution_times.csv")
             
             result = {"status": "success", "total_incidents": total_incidents, "station_report": station_report, "average_response_time": float(average_response_time), "coverage_percent": coverage_percent, "vehicle_report": vehicle_json, "average_response_time_per_incident_type": average_response_time_per_incident_type, "P90_continuous": float(P90_continuous), "evaluation": evaluation}
-            print(evaluation['overall_summary'])
+            # print(evaluation['overall_summary'])
             print("average_response_time:", float(average_response_time), "coverage_percent:", coverage_percent, "P90_continuous:", float(P90_continuous))
             return result
         #print simulator stdout and stderr for debugging
 
         result = {"status": "success", "total_incidents": total_incidents, "station_report": station_report, "average_response_time": float(average_response_time), "coverage_percent": coverage_percent, "vehicle_report": vehicle_json, "average_response_time_per_incident_type": average_response_time_per_incident_type, "P90_continuous": float(P90_continuous)}
-
+        print(result)
         return result
     except subprocess.CalledProcessError as e:
         print("Error executing simulation:", e.stderr)

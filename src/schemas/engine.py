@@ -51,11 +51,23 @@ class RunSimulationRequest(BaseModel):
     stations: Optional[List[StationInput]] = Field(
         default=None, validation_alias=AliasChoices("stations")
     )
-    incident_type: Optional[Literal["fire", "ems_fire"]] = Field(default=None)
+    incident_type: Optional[Literal["fire", "ems_fire"]] = Field(
+        default=None, 
+        validation_alias=AliasChoices("incident_type", "incidentType")
+    )
     models: Optional[ModelOptions] = None
-    dispatch_policy: Optional[str] = Field(default=None)
-    station_data: Optional[str] = Field(default=None)
-    date_range: Optional[DateRange] = Field(default=None)
+    dispatch_policy: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("dispatch_policy", "dispatchPolicy")
+    )
+    station_data: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("station_data", "stationData")
+    )
+    date_range: Optional[DateRange] = Field(
+        default=None,
+        validation_alias=AliasChoices("date_range", "dateRange")
+    )
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 

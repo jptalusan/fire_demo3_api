@@ -33,22 +33,33 @@ class DateRangeStartEnd(BaseModel):
 
 
 class GetIncidentsFilters(BaseModel):
-    date_range: DateRangeStartEnd = Field(alias="date_range")
-    incident_type: Literal["fire", "ems_fire"]
+    date_range: DateRangeStartEnd = Field(
+        validation_alias=AliasChoices("date_range", "dateRange")
+    )
+    incident_type: Literal["fire", "ems_fire"] = Field(
+        validation_alias=AliasChoices("incident_type", "incidentType")
+    )
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 class GetIncidentsRequest(BaseModel):
-    model_id: Literal["historical_incidents"]
+    model_id: Literal["historical_incidents"] = Field(
+        validation_alias=AliasChoices("model_id", "modelId")
+    )
     filters: GetIncidentsFilters
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 class GenerateIncidentsRequest(BaseModel):
-    date_range: DateRangeStartEnd
-    incident_type: Literal["fire", "ems_fire"] = "fire"
+    date_range: DateRangeStartEnd = Field(
+        validation_alias=AliasChoices("date_range", "dateRange")
+    )
+    incident_type: Literal["fire", "ems_fire"] = Field(
+        default="fire",
+        validation_alias=AliasChoices("incident_type", "incidentType")
+    )
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
