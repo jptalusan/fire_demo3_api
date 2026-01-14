@@ -67,9 +67,13 @@ uv run fastapi dev ./src/main.py --reload --host 0.0.0.0 --port 8000
 - GET /files: Returns a JSON list of files in the data directory.
 
 ## Testing
+
+### Status check
+curl -k -X GET "https://hobvmisap57/endpoint/api/health"
+
 ### Run this for simulation (single)
 ```
-curl -sS -X POST "http://127.0.0.1:8000/api/engine/run-simulation" \
+curl -sS -X POST "http://127.0.0.1:9999/api/engine/run-simulation" \
   -H "Content-Type: application/json" \
   -d '{
     "stations": [{
@@ -100,7 +104,7 @@ curl -sS -X POST "http://127.0.0.1:8000/api/engine/run-simulation" \
 
 ### For comparison
 ```
-curl -sS -X POST "http://127.0.0.1:8000/api/engine/run-comparison" \
+curl -sS -X POST "http://127.0.0.1:9999/api/engine/run-comparison" \
   -H "Content-Type: application/json" \
   -d '{
     "baseline": {
@@ -155,3 +159,64 @@ curl -sS -X POST "http://127.0.0.1:8000/api/engine/run-comparison" \
     }
   }'
 ```
+
+### Run this for simulation using SSL endpoint
+```
+curl -k -sS -X POST "https://hobvmisap57/endpoint/api/engine/run-simulation" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stations": [{
+      "id": "0",
+      "name": "Station 01",
+      "lat": 36.2293898,
+      "lon": -86.75674762,
+      "apparatus": [
+        {"type": "Engine", "count": 1},
+        {"type": "Medic", "count": 1}
+      ]
+    }],
+    "incident_type": "fire",
+    "models": {
+      "incident": "historical_incidents",
+      "dispatch": "nearest",
+      "travelTime": "OSRM",
+      "serviceTime": "empirical_servicetimes"
+    },
+    "dispatch_policy": "string",
+    "station_data": "string",
+    "date_range": {
+      "start_date": "string",
+      "end_date": "string"
+    }
+  }'
+```
+
+curl -k -sS -X POST "https://hobvmisap57/endpoint/api/engine/run-simulation" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stations": [{
+      "id": "0",
+      "name": "Station 01",
+      "lat": 36.2293898,
+      "lon": -86.75674762,
+      "apparatus": [
+        {"type": "Engine", "count": 1},
+        {"type": "Medic", "count": 1},
+        {"type": "Rescue", "count": 1},
+        {"type": "Squad", "count": 1}
+      ]
+    }],
+    "incident_type": "fire",
+    "models": {
+      "incident": "historical_incidents",
+      "dispatch": "nearest",
+      "travelTime": "OSRM",
+      "serviceTime": "empirical_servicetimes"
+    },
+    "dispatch_policy": "string",
+    "station_data": "string",
+    "date_range": {
+        "start_date": "11-01-2022",
+        "end_date": "11-02-2022"
+    }
+  }'
