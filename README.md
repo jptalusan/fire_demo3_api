@@ -161,36 +161,7 @@ curl -sS -X POST "http://127.0.0.1:9999/api/engine/run-comparison" \
 ```
 
 ### Run this for simulation using SSL endpoint
-```
-curl -k -sS -X POST "https://hobvmisap57/endpoint/api/engine/run-simulation" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "stations": [{
-      "id": "0",
-      "name": "Station 01",
-      "lat": 36.2293898,
-      "lon": -86.75674762,
-      "apparatus": [
-        {"type": "Engine", "count": 1},
-        {"type": "Medic", "count": 1}
-      ]
-    }],
-    "incident_type": "fire",
-    "models": {
-      "incident": "historical_incidents",
-      "dispatch": "nearest",
-      "travelTime": "OSRM",
-      "serviceTime": "empirical_servicetimes"
-    },
-    "dispatch_policy": "string",
-    "station_data": "string",
-    "date_range": {
-      "start_date": "string",
-      "end_date": "string"
-    }
-  }'
-```
-
+```bash
 curl -k -sS -X POST "https://hobvmisap57/endpoint/api/engine/run-simulation" \
   -H "Content-Type: application/json" \
   -d '{
@@ -220,3 +191,4 @@ curl -k -sS -X POST "https://hobvmisap57/endpoint/api/engine/run-simulation" \
         "end_date": "11-02-2022"
     }
   }'
+```
