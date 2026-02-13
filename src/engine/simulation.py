@@ -1,4 +1,5 @@
 
+import asyncio
 import hashlib
 import subprocess
 import pandas as pd
@@ -272,8 +273,17 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
         print(f"Executing {config_name} simulation...")
         print("Command:", " ".join(command))
         
-        # Execute the command
-        _ = subprocess.run(command, capture_output=True, text=True, check=True)
+        # Execute the command (non-blocking so asyncio.gather can parallelize)
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        print(f"[{config_name}] simulator stdout:", stdout.decode())
+        print(f"[{config_name}] simulator stderr:", stderr.decode())
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, command[0], stderr.decode())
         
         # Process results
         station_report, total_incidents, average_response_time, coverage_percent, vehicle_json, P90_continuous = summarize_station_report_as_json(
