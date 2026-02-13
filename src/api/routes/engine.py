@@ -266,7 +266,14 @@ async def run_simulation(payload: RunSimulationRequest):
         "ZONE_MAP_PATH": str(data_dir / "zones.csv"),
         "BEATS_SHAPEFILE_PATH": str(data_dir / "beats_shpfile.geojson"),
         "RANDOM_SEED": 42,
-        "PYTHON_PATH": "../../venvBOC/bin/python"
+        "PYTHON_PATH": "../../venvBOC/bin/python",
+        "INCIDENT_MODEL_TYPE": "EMPIRICAL",
+        "HOSPITALS_CSV_PATH": str(data_dir / "ems_stats" / "hospitals.csv"),
+        "EMS_SCENE_TIME_STATS_PATH": str(data_dir / "ems_stats" / "ems_scene_time_stats.csv"),
+        "EMS_TRANSPORT_STATS_PATH": str(data_dir / "ems_stats" / "ems_transport_stats.csv"),
+        "HOSPITAL_TIME_STATS_PATH": str(data_dir / "ems_stats" / "hospital_time_stats.csv"),
+        "ZONE_HOSPITAL_PROBS_PATH": str(data_dir / "ems_stats" / "zone_to_hospital_probs.csv"),
+        "EMS_TRANSPORT_REPORT_PATH": str(logs_dir_save / "ems_transport_report.csv"),
     }
 
     # Update config with any direct overrides from the payload (excluding processed fields)
@@ -292,9 +299,8 @@ async def run_simulation(payload: RunSimulationRequest):
         ]
     }
     config.update(config_overrides)
-    
 
-    # Construct the command for the C++ simulator
+
     # Construct the command for the C++ simulator
     command = [
         "./data/fire_simulator",
@@ -306,8 +312,6 @@ async def run_simulation(payload: RunSimulationRequest):
         f"--MODEL_PATH={config['MODEL_PATH']}",
         f"--FEATURES_PATH={config['FEATURES_PATH']}",
         f"--TRAVEL_TIME_MODEL_TYPE={config['TRAVEL_TIME_MODEL_TYPE']}",
-        f"--OSRM_URL={config['OSRM_URL']}",
-        f"--BASE_OSRM_URL={config['BASE_OSRM_URL']}",
         f"--MEAN_MATRIX_PATH={config['MEAN_MATRIX_PATH']}",
         f"--STD_MATRIX_PATH={config['STD_MATRIX_PATH']}",
         f"--ZONE_INFO_PATH={config['ZONE_INFO_PATH']}",
@@ -325,6 +329,13 @@ async def run_simulation(payload: RunSimulationRequest):
         f"--BEATS_SHAPEFILE_PATH={config['BEATS_SHAPEFILE_PATH']}",
         f"--RANDOM_SEED={config['RANDOM_SEED']}",
         f"--PYTHON_PATH={config['PYTHON_PATH']}",
+        f"--INCIDENT_MODEL_TYPE={config['INCIDENT_MODEL_TYPE']}",
+        f"--HOSPITALS_CSV_PATH={config['HOSPITALS_CSV_PATH']}",
+        f"--EMS_SCENE_TIME_STATS_PATH={config['EMS_SCENE_TIME_STATS_PATH']}",
+        f"--EMS_TRANSPORT_STATS_PATH={config['EMS_TRANSPORT_STATS_PATH']}",
+        f"--HOSPITAL_TIME_STATS_PATH={config['HOSPITAL_TIME_STATS_PATH']}",
+        f"--ZONE_HOSPITAL_PROBS_PATH={config['ZONE_HOSPITAL_PROBS_PATH']}",
+        f"--EMS_TRANSPORT_REPORT_PATH={config['EMS_TRANSPORT_REPORT_PATH']}",
     ]
     print("Executing command:", " ".join(command))
     # Execute the command

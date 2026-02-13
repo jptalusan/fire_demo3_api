@@ -237,7 +237,14 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
             "ZONE_MAP_PATH": str(data_dir / "zones.csv"),
             "BEATS_SHAPEFILE_PATH": str(data_dir / "beats_shpfile.geojson"),
             "RANDOM_SEED": 42,
-            "PYTHON_PATH": "../../venvBOC/bin/python"
+            "PYTHON_PATH": "../../venvBOC/bin/python",
+            "INCIDENT_MODEL_TYPE": "EMPIRICAL",
+            "HOSPITALS_CSV_PATH": str(data_dir / "ems_stats" / "hospitals.csv"),
+            "EMS_SCENE_TIME_STATS_PATH": str(data_dir / "ems_stats" / "ems_scene_time_stats.csv"),
+            "EMS_TRANSPORT_STATS_PATH": str(data_dir / "ems_stats" / "ems_transport_stats.csv"),
+            "HOSPITAL_TIME_STATS_PATH": str(data_dir / "ems_stats" / "hospital_time_stats.csv"),
+            "ZONE_HOSPITAL_PROBS_PATH": str(data_dir / "ems_stats" / "zone_to_hospital_probs.csv"),
+            "EMS_TRANSPORT_REPORT_PATH": str(logs_dir / "ems_transport_report.csv"),
         }
 
         # Construct the command for the C++ simulator
@@ -268,6 +275,13 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
             f"--BEATS_SHAPEFILE_PATH={sim_config['BEATS_SHAPEFILE_PATH']}",
             f"--RANDOM_SEED={sim_config['RANDOM_SEED']}",
             f"--PYTHON_PATH={sim_config['PYTHON_PATH']}",
+            f"--INCIDENT_MODEL_TYPE={sim_config['INCIDENT_MODEL_TYPE']}",
+            f"--HOSPITALS_CSV_PATH={sim_config['HOSPITALS_CSV_PATH']}",
+            f"--EMS_SCENE_TIME_STATS_PATH={sim_config['EMS_SCENE_TIME_STATS_PATH']}",
+            f"--EMS_TRANSPORT_STATS_PATH={sim_config['EMS_TRANSPORT_STATS_PATH']}",
+            f"--HOSPITAL_TIME_STATS_PATH={sim_config['HOSPITAL_TIME_STATS_PATH']}",
+            f"--ZONE_HOSPITAL_PROBS_PATH={sim_config['ZONE_HOSPITAL_PROBS_PATH']}",
+            f"--EMS_TRANSPORT_REPORT_PATH={sim_config['EMS_TRANSPORT_REPORT_PATH']}",
         ]
         
         print(f"Executing {config_name} simulation...")
