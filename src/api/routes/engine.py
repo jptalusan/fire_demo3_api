@@ -268,12 +268,15 @@ async def run_simulation(payload: RunSimulationRequest):
         "RANDOM_SEED": 42,
         "PYTHON_PATH": "../../venvBOC/bin/python",
         "INCIDENT_MODEL_TYPE": "EMPIRICAL",
-        "HOSPITALS_CSV_PATH": str(data_dir / "ems_stats" / "hospitals.csv"),
-        "EMS_SCENE_TIME_STATS_PATH": str(data_dir / "ems_stats" / "ems_scene_time_stats.csv"),
-        "EMS_TRANSPORT_STATS_PATH": str(data_dir / "ems_stats" / "ems_transport_stats.csv"),
-        "HOSPITAL_TIME_STATS_PATH": str(data_dir / "ems_stats" / "hospital_time_stats.csv"),
-        "ZONE_HOSPITAL_PROBS_PATH": str(data_dir / "ems_stats" / "zone_to_hospital_probs.csv"),
+        "HOSPITALS_CSV_PATH": str(data_dir / "ems_stats" / "hospital_locations.csv"),
+        "EMS_SCENE_TIME_STATS_PATH": str(data_dir / "ems_stats" / "scene_time_by_category.csv"),
+        "EMS_TRANSPORT_STATS_PATH": str(data_dir / "ems_stats" / "transport_prob_by_category.csv"),
+        "HOSPITAL_TIME_STATS_PATH": str(data_dir / "ems_stats" / "hospital_turnaround_overall.csv"),
+        "ZONE_HOSPITAL_PROBS_PATH": str(data_dir / "ems_stats" / "hospital_zone_probs.csv"),
         "EMS_TRANSPORT_REPORT_PATH": str(logs_dir_save / "ems_transport_report.csv"),
+        "SCENE_TIME_COUPLING_PARAMS_PATH": str(data_dir / "ems_stats" / "scene_time_model_params.csv"),
+        "HOSPITAL_TIME_BY_DEST_PATH": str(data_dir / "ems_stats" / "hospital_turnaround_by_dest.csv"),
+        "MULTI_MEDIC_TRANSPORT_DIST_PATH": str(data_dir / "ems_stats" / "transport_multi_medic_dist.csv"),
     }
 
     # Update config with any direct overrides from the payload (excluding processed fields)
@@ -336,6 +339,9 @@ async def run_simulation(payload: RunSimulationRequest):
         f"--HOSPITAL_TIME_STATS_PATH={config['HOSPITAL_TIME_STATS_PATH']}",
         f"--ZONE_HOSPITAL_PROBS_PATH={config['ZONE_HOSPITAL_PROBS_PATH']}",
         f"--EMS_TRANSPORT_REPORT_PATH={config['EMS_TRANSPORT_REPORT_PATH']}",
+        f"--SCENE_TIME_COUPLING_PARAMS_PATH={config['SCENE_TIME_COUPLING_PARAMS_PATH']}",
+        f"--HOSPITAL_TIME_BY_DEST_PATH={config['HOSPITAL_TIME_BY_DEST_PATH']}",
+        f"--MULTI_MEDIC_TRANSPORT_DIST_PATH={config['MULTI_MEDIC_TRANSPORT_DIST_PATH']}",
     ]
     print("Executing command:", " ".join(command))
     # Execute the command

@@ -126,6 +126,29 @@ class SurvivalRegressionForecaster(Forecaster):
 
 
 
+    def sample(self, x_test, metadata):
+        """
+        Samples time between incidents from the exponential distribution parameterized by the model,
+        rather than returning the expected value.
+        """
+        samples = []
+        features = metadata['features']
+
+        for index, row in x_test.iterrows():
+            cluster_label = row['cluster_label']
+            if cluster_label in self.model_params:
+                w = np.array(self.model_params[cluster_label])
+                x = np.array(row[features])
+
+                log_pred = np.dot(x, w.T).item()
+                scale = np.exp(log_pred)  # E[T] = 1/lambda = exp(w·x)
+                samples.append(np.random.exponential(scale))
+            else:
+                samples.append(np.nan)
+
+        x_test['predicted_time_bet'] = samples
+        return x_test
+
     def get_regression_expr(self):
         """
         Creates regression expression in the form of a patsy expression.
