@@ -207,8 +207,10 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
         elif service_time_model == 'empirical_servicetimes':
             fire_model_type = "HISTORICAL"
         
+        # DISABLE_EMS: defaults to true (fire-only); pass false in config to enable medic operations
+        disable_ems_str = "false" if config.get('disable_ems') is False else "true"
+
         # Define the simulator configuration
-        
         sim_config = {
             "OSRM_URL": f"http://{constants.OSRM_HOST}:{constants.OSRM_PORT}/table/v1/driving/",
             "BASE_OSRM_URL": f"http://{constants.OSRM_HOST}:{constants.OSRM_PORT}",
@@ -248,6 +250,7 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
             "SCENE_TIME_COUPLING_PARAMS_PATH": str(data_dir / "ems_stats" / "scene_time_model_params.csv"),
             "HOSPITAL_TIME_BY_DEST_PATH": str(data_dir / "ems_stats" / "hospital_turnaround_by_dest.csv"),
             "MULTI_MEDIC_TRANSPORT_DIST_PATH": str(data_dir / "ems_stats" / "transport_multi_medic_dist.csv"),
+            "DISABLE_EMS": disable_ems_str,
         }
 
         # Construct the command for the C++ simulator
@@ -288,6 +291,7 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
             f"--SCENE_TIME_COUPLING_PARAMS_PATH={sim_config['SCENE_TIME_COUPLING_PARAMS_PATH']}",
             f"--HOSPITAL_TIME_BY_DEST_PATH={sim_config['HOSPITAL_TIME_BY_DEST_PATH']}",
             f"--MULTI_MEDIC_TRANSPORT_DIST_PATH={sim_config['MULTI_MEDIC_TRANSPORT_DIST_PATH']}",
+            f"--DISABLE_EMS={sim_config['DISABLE_EMS']}",
         ]
         
         print(f"Executing {config_name} simulation...")

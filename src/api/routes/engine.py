@@ -227,6 +227,9 @@ async def run_simulation(payload: RunSimulationRequest):
         fire_model_type = "HISTORICAL"
     station_data_option = payload_dict.get('station_data', 'default_stations')
 
+    # DISABLE_EMS: defaults to true (fire-only); pass false in payload to enable medic operations
+    disable_ems_str = "false" if payload_dict.get('disable_ems') is False else "true"
+
     #create log directory based on configuration and date-range
     station_data_option = station_data_option or "default"
     dispatch_policy = dispatch_policy or "default"
@@ -277,6 +280,7 @@ async def run_simulation(payload: RunSimulationRequest):
         "SCENE_TIME_COUPLING_PARAMS_PATH": str(data_dir / "ems_stats" / "scene_time_model_params.csv"),
         "HOSPITAL_TIME_BY_DEST_PATH": str(data_dir / "ems_stats" / "hospital_turnaround_by_dest.csv"),
         "MULTI_MEDIC_TRANSPORT_DIST_PATH": str(data_dir / "ems_stats" / "transport_multi_medic_dist.csv"),
+        "DISABLE_EMS": disable_ems_str,
     }
 
     # Update config with any direct overrides from the payload (excluding processed fields)
@@ -342,6 +346,7 @@ async def run_simulation(payload: RunSimulationRequest):
         f"--SCENE_TIME_COUPLING_PARAMS_PATH={config['SCENE_TIME_COUPLING_PARAMS_PATH']}",
         f"--HOSPITAL_TIME_BY_DEST_PATH={config['HOSPITAL_TIME_BY_DEST_PATH']}",
         f"--MULTI_MEDIC_TRANSPORT_DIST_PATH={config['MULTI_MEDIC_TRANSPORT_DIST_PATH']}",
+        f"--DISABLE_EMS={config['DISABLE_EMS']}",
     ]
     print("Executing command:", " ".join(command))
     # Execute the command

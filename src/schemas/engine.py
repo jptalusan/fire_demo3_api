@@ -64,6 +64,10 @@ class RunSimulationRequest(BaseModel):
         default=None,
         validation_alias=AliasChoices("station_data", "stationData")
     )
+    disable_ems: Optional[bool] = Field(
+        default=None,
+        validation_alias=AliasChoices("disable_ems", "disableEms")
+    )
     date_range: Optional[DateRange] = Field(
         default=None,
         validation_alias=AliasChoices("date_range", "dateRange")
