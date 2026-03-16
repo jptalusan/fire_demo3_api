@@ -62,14 +62,46 @@ uvicorn ./src/main.py --reload
 uv run fastapi dev ./src/main.py --reload --host 0.0.0.0 --port 8000
 ```
 
-## API
+## Setting it up to reset on RHEL8
+Make sure that the backend runs on its own before converting it into a daemon.
+1. Identify the location of the `uv` binary.
+    ```bash
+    which uv
+    $ ~/.local/bin/uv
+    ```
+2. Create the daemon service
+    ```bash
+    sudo vim /etc/systemd/system/fire-backend-app.service
+    ```
+3. Add the following information inside. Take note of the `User`, `WorkingDirectory` and `ExecStart` paths.
+    ```bash
+    # Add the following
+    [Unit]
+    Description=Fire Backend App
+    After=network.target
 
-- GET /files: Returns a JSON list of files in the data directory.
+    [Service]
+    User=vdr-jptalusan
+    WorkingDirectory=/home/vdr-jptalusan/fire_demo3_api
+    # Do not use relative paths here
+    ExecStart=/home/vdr-jptalusan/.local/bin/uv run uvicorn src.app:app --reload --log-level debug --host 0.0.0.0 --port 9999
+    Restart=always
 
-## Testing
+    [Install]
+    WantedBy=multi-user.target
+    ```
+4. Start the service
+    ```bash
+    sudo systemctl daemon-reload
+    sudo systemctl enable fire-backend-app.service
+    sudo systemctl start fire-backend-app.service
+    ```
+Try the samples below.
 
+## API Samples
+Just a couple of ways to test the backend. 
 ### Status check
-curl -k -X GET "https://hobvmisap57/endpoint/api/health"
+curl -k -X GET "https://127.0.0.1:9999/endpoint/api/health"
 
 ### Run this for simulation (single)
 ```
