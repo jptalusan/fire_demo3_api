@@ -241,6 +241,9 @@ sketch
 .ionide
 
 data/**
+!data/models/
+!data/models/growth_poisson_v1/
+!data/models/growth_poisson_v1/**
 public/data/**
 test.ipynb
 data.zip

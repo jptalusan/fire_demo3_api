@@ -6,6 +6,7 @@ import io
 import pandas as pd
 import src.core.config as constants
 from src.engine.incidents import predict_incidents_with_types_and_coordinates
+from src.engine.incidents_variants import predict_incidents as predict_incidents_growth_v1
 from src.schemas.incidents import GenerateIncidentsRequest, GetIncidentsRequest, ProcessIncidentsResponse
 from src.engine.simulation import get_or_create_historical_incidents
 router = APIRouter()
@@ -123,27 +124,30 @@ async def generate_incidents(payload: GenerateIncidentsRequest):
         start_date = payload.date_range.start
         end_date = payload.date_range.end
         incident_type = payload.incident_type
-        
-        print(f"Generating {incident_type} incidents from {start_date} to {end_date}")
+        model_name = payload.model
+        seed = payload.seed
+
+        print(f"Generating {incident_type} incidents [{model_name}] from {start_date} to {end_date}")
 
         if not start_date or not end_date:
             print("Invalid input")
             return {"status": "error", "error": "startDate and endDate are required"}
-        
+
         # Extract date part for filename (YYYY-MM-DD)
         start_date_str = start_date[:10] if 'T' in start_date else start_date
         end_date_str = end_date[:10] if 'T' in end_date else end_date
-        
-        query_hash = hashlib.md5(f"synthetic_incidents_{start_date_str}_{end_date_str}".encode()).hexdigest()
-        query_filename = f"synthetic_{start_date_str}_{end_date_str}_{query_hash[:8]}.csv"
-        
+
+        cache_key = f"synthetic_incidents_{model_name}_{start_date_str}_{end_date_str}_seed{seed}"
+        query_hash = hashlib.md5(cache_key.encode()).hexdigest()
+        query_filename = f"synthetic_{model_name}_{start_date_str}_{end_date_str}_{query_hash[:8]}.csv"
+
         # Define paths (use the same DATA_DIR as the rest of the app)
         query_dir = data_dir / "incidents" / "synthetic" / incident_type / "query"  # Use synthetic directory
         query_path = query_dir / query_filename
-        
+
         # Ensure query directory exists
         query_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Check if the synthetic query already exists
         if query_path.exists():
             print(f"Using cached synthetic query: {query_filename}")
@@ -151,27 +155,41 @@ async def generate_incidents(payload: GenerateIncidentsRequest):
             with open(query_path, 'r') as f:
                 csv_content = f.read()
         else:
-            print(f"Creating new synthetic query for {incident_type}: {query_filename}")
+            print(f"Creating new synthetic query for {incident_type} [{model_name}]: {query_filename}")
 
-            # Generate random incidents using the prediction system with incident type
-            predicted_incidents_df = predict_incidents_with_types_and_coordinates(start_date, end_date, incident_type=incident_type)
-            
+            if model_name == "growth_v1":
+                df = predict_incidents_growth_v1(start_date, end_date, seed=seed,
+                                                 incident_type=incident_type)
+                # Map to legacy CSV schema. growth_v1 has no incident_level; assign uniformly random.
+                if not df.empty:
+                    import numpy as np
+                    rng = np.random.default_rng(seed)
+                    df = df.copy()
+                    df["incident_level"] = rng.choice(
+                        ["Low", "Moderate", "High"], size=len(df), p=[0.4, 0.4, 0.2]
+                    )
+                predicted_incidents_df = df
+            else:
+                predicted_incidents_df = predict_incidents_with_types_and_coordinates(
+                    start_date, end_date, incident_type=incident_type
+                )
+
             # Convert DataFrame to list of dictionaries for CSV generation
             incidents = predicted_incidents_df.to_dict('records') if not predicted_incidents_df.empty else []
-            
-            # Convert to CSV format
+
+            # Convert to CSV format (legacy schema for client compatibility)
             csv_header = "incident_id,lat,lon,incident_type,incident_level,datetime,category\n"
             csv_rows = []
             for incident in incidents:
                 row = f"{incident['incident_id']},{incident['lat']},{incident['lon']},{incident['incident_type']},{incident['incident_level']},{incident['datetime']},{incident['category']}"
                 csv_rows.append(row)
-            
+
             csv_content = csv_header + "\n".join(csv_rows)
-            
+
             # Save the synthetic query for future use
             with open(query_path, 'w') as f:
                 f.write(csv_content)
-            
+
             print(f"Generated {len(incidents)} synthetic incidents and saved to {query_filename}")
         
         # Return raw CSV with proper content type

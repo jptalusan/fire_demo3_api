@@ -60,6 +60,11 @@ class GenerateIncidentsRequest(BaseModel):
         default="fire",
         validation_alias=AliasChoices("incident_type", "incidentType")
     )
+    model: Literal["growth_v1", "legacy"] = Field(
+        default="growth_v1",
+        validation_alias=AliasChoices("model", "modelName"),
+    )
+    seed: int = Field(default=42)
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
