@@ -19,7 +19,6 @@ class DateRange(BaseModel):
 
 class ModelOptions(BaseModel):
     incident: Optional[Literal["historical_incidents", "synthetic_incidents"]] = None
-    dispatch: Optional[Literal["nearest", "firebeats"]] = None
     travel_time: Optional[str] = Field(default=None, alias="travelTime")
     service_time: Optional[Literal["ml_based", "constant", "empirical_servicetimes"]] = Field(
         default=None, alias="serviceTime"

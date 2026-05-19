@@ -190,9 +190,8 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
         dispatch_policy = "FIREBEATS"  # default
         if config.get('dispatch_policy') == 'nearest':
             dispatch_policy = "NEAREST"
-        elif config.get('models', {}).get('dispatch') == 'nearest':
-            dispatch_policy = "NEAREST"
-            
+
+
         travel_time_model = config.get('models', {}).get('travelTime', 'OSRM')
         if travel_time_model == 'ARCGIS':
             travel_time_model = "OSRM"
@@ -235,7 +234,7 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
             "DURATION_MATRIX_PATH": str(logs_dir / "duration_matrix.bin"),
             "DISTANCE_MATRIX_PATH": str(logs_dir / "distance_matrix.bin"),
             "MATRIX_CSV_PATH": str(logs_dir / "matrix.csv"),
-            "FIREBEATS_MATRIX_PATH": str(logs_dir / "beats.bin"),
+            "FIREBEATS_MATRIX_PATH": str(constants.BASE_DIR / "logs" / "beats.bin"),
             "ZONE_MAP_PATH": str(data_dir / "zones.csv"),
             "BEATS_SHAPEFILE_PATH": str(data_dir / "beats_shpfile.geojson"),
             "RANDOM_SEED": 42,

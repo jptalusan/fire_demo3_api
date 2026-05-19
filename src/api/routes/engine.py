@@ -2,7 +2,9 @@
 
 import asyncio
 import hashlib
+import shutil
 import subprocess
+import uuid
 import pandas as pd
 from fastapi import APIRouter
 
@@ -29,6 +31,7 @@ async def run_comparison(payload: RunComparisonRequest):
     """
     Runs simulations for both baseline and new configurations and returns comparative statistics.
     """
+    request_temp_dir = None
     try:
         payload_dict = payload.model_dump(by_alias=True)
         print("Received payload for comparison:", payload_dict)
@@ -39,11 +42,10 @@ async def run_comparison(payload: RunComparisonRequest):
         if not baseline_config or not new_config:
             return {"status": "error", "error": "Both baseline and newConfig are required"}
         
-        # Create temporary directories for comparison runs
-        import time
-        timestamp = int(time.time())
-        baseline_temp_dir = logs_dir / "comparison_temp" / f"baseline_{timestamp}"
-        new_config_temp_dir = logs_dir / "comparison_temp" / f"newconfig_{timestamp}"
+        # Create a unique temp workspace for this request to avoid collisions
+        request_temp_dir = logs_dir / "comparison_temp" / uuid.uuid4().hex
+        baseline_temp_dir = request_temp_dir / "baseline"
+        new_config_temp_dir = request_temp_dir / "newconfig"
         baseline_temp_dir.mkdir(parents=True, exist_ok=True)
         new_config_temp_dir.mkdir(parents=True, exist_ok=True)
         
@@ -88,11 +90,6 @@ async def run_comparison(payload: RunComparisonRequest):
         # ==================== CALCULATE COMPARATIVE STATISTICS ====================
         comparison_stats = calculate_comparison_stats(baseline_result, new_result)
         
-        # Clean up temporary directories (optional - comment out for debugging)
-        # import shutil
-        # shutil.rmtree(baseline_temp_dir, ignore_errors=True)
-        # shutil.rmtree(new_config_temp_dir, ignore_errors=True)
-        
         # Return comprehensive comparison results
         return_body = {
             "status": "success",
@@ -119,13 +116,6 @@ async def run_comparison(payload: RunComparisonRequest):
         }
 
         
-        # Clean up temporary directories forcefully
-        import shutil
-        comparison_temp_dir = logs_dir / "comparison_temp"
-        if comparison_temp_dir.exists():
-            shutil.rmtree(comparison_temp_dir, ignore_errors=True)
-
-        
         print("return_body:", return_body)
         return return_body
         
@@ -134,6 +124,9 @@ async def run_comparison(payload: RunComparisonRequest):
         import traceback
         traceback.print_exc()
         return {"status": "error", "error": str(e)}
+    finally:
+        if request_temp_dir and request_temp_dir.exists():
+            shutil.rmtree(request_temp_dir, ignore_errors=True)
 
 
 @router.post("/run-simulation", response_model=SimulationRunResponse)
@@ -209,9 +202,8 @@ async def run_simulation(payload: RunSimulationRequest):
     dispatch_policy = "FIREBEATS"  # default
     if payload_dict.get('dispatch_policy') == 'nearest':
         dispatch_policy = "NEAREST"
-    elif models.get('dispatch') == 'nearest':
-        dispatch_policy = "NEAREST"
-        
+
+
     travel_time_model = models.get('travelTime', 'OSRM')
     if travel_time_model == 'ARCGIS':
         travel_time_model = "OSRM"
@@ -353,6 +345,7 @@ async def run_simulation(payload: RunSimulationRequest):
     try:
         result = subprocess.run(command, capture_output=True, text=True, check=True)
         station_report, total_incidents, average_response_time, coverage_percent, vehicle_json, P90_continuous = summarize_station_report_as_json(config['STATION_REPORT_CSV_PATH'], config['REPORT_CSV_PATH'])
+        print(station_report)
         average_response_time_per_incident_type = calculate_average_response_times_by_incident_type(config['STATION_REPORT_CSV_PATH'], config['REPORT_CSV_PATH'],incidents_path)
         print("Simulation completed successfully.")
         if (station_data_option == 'default_stations') & (models.get('incident') == 'historical_incidents'):
