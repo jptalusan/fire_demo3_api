@@ -27,8 +27,8 @@ def _calculate_aggregate_metrics(sim_data: pd.DataFrame, gt_data: pd.DataFrame, 
         # Travel time (alarm-arrive time)
         'travel_time_mean_sim': float(sim_data['AlarmArriveTime'].mean()),
         'travel_time_mean_gt': float(gt_data['travel_time'].mean()),
-        'travel_time_p90_sim': float(sim_data['AlarmArriveTime'].quantile(0.9)),
-        'travel_time_p90_gt': float(gt_data['travel_time'].quantile(0.9)),
+        'travel_time_p90_sim': float(sim_data['AlarmArriveTime'].quantile(0.9, interpolation="lower")),
+        'travel_time_p90_gt': float(gt_data['travel_time'].quantile(0.9, interpolation="lower")),
         
         # Coverage (incidents within 320 seconds)
         'coverage_percentage_sim': float((sim_data['AlarmArriveTime'] <= 320).sum() / len(sim_data) * 100),
@@ -65,8 +65,8 @@ def _calculate_per_station_metrics(sim_data: pd.DataFrame, gt_data: pd.DataFrame
     merged_counts = sim_counts.merge(gt_counts, on='StationID', how='outer').fillna(0)
     
     # Travel time P90 per station
-    sim_travel_p90 = sim_data.groupby('StationID')['AlarmArriveTime'].quantile(0.9).reset_index(name='travel_p90_sim')
-    gt_travel_p90 = gt_data.groupby('StationID')['travel_time'].quantile(0.9).reset_index(name='travel_p90_gt')
+    sim_travel_p90 = sim_data.groupby('StationID')['AlarmArriveTime'].quantile(0.9, interpolation="lower").reset_index(name='travel_p90_sim')
+    gt_travel_p90 = gt_data.groupby('StationID')['travel_time'].quantile(0.9, interpolation="lower").reset_index(name='travel_p90_gt')
     merged_travel_p90 = sim_travel_p90.merge(gt_travel_p90, on='StationID', how='outer')
     
     # Travel time Mean per station
@@ -217,7 +217,7 @@ def evaluate_simulation_performance(
    
     if incident_type == 'fire':
         ground_truth_travel_time_mean = ground_truth['FirstEngineTravelTime'].mean()
-        ground_truth_P90_continuous = (ground_truth['FirstEngineTravelTime']).quantile(0.9)
+        ground_truth_P90_continuous = (ground_truth['FirstEngineTravelTime']).quantile(0.9, interpolation="lower")
         target_seconds = 320
         total_incidents = ground_truth['incident_id'].nunique()
         within_target = ground_truth[(ground_truth['FirstEngineTravelTime']) <= target_seconds]
@@ -225,7 +225,7 @@ def evaluate_simulation_performance(
         gt_coverage_percent = (coverage_incidents / total_incidents * 100) if total_incidents > 0 else 0
     else:
         ground_truth_travel_time_mean = ground_truth[['FirstEngineTravelTime','FirstEMSTravelTime']].min(axis=1).mean()
-        ground_truth_P90_continuous = (ground_truth[['FirstEngineTravelTime','FirstEMSTravelTime']].min(axis=1)).quantile(0.9)
+        ground_truth_P90_continuous = (ground_truth[['FirstEngineTravelTime','FirstEMSTravelTime']].min(axis=1)).quantile(0.9, interpolation="lower")
         target_seconds = 320
         total_incidents = ground_truth['incident_id'].nunique()
         within_target = ground_truth[(ground_truth[['FirstEngineTravelTime','FirstEMSTravelTime']].min(axis=1)) <= target_seconds]
@@ -290,7 +290,7 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
     
     # Calculate overall response time metrics
     average_response_time = firstdf["TravelTimeToIncident"].mean()
-    P90_continuous = firstdf["TravelTimeToIncident"].quantile(0.9)
+    P90_continuous = firstdf["TravelTimeToIncident"].quantile(0.9, interpolation="lower")
 
     target_seconds = 320
     
@@ -310,7 +310,7 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
     # Aggregate statistics per station
     summary_df = (firstdf.groupby("StationID").agg(
                 AverageTravelTime=("TravelTimeToIncident", "mean"),
-                P90TravelTime=("TravelTimeToIncident", lambda x: x.quantile(0.9)),
+                P90TravelTime=("TravelTimeToIncident", lambda x: x.quantile(0.9, interpolation="lower")),
                 IncidentCount=("IncidentIndex", "count"),
                 TravelTimes=("TravelTimeToIncident", list),
                 AverageServiceTime=("Total_Service_Time", "mean"),
@@ -319,7 +319,7 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
 
     average_travel_time_per_vehicle_df=(df.groupby("Type").agg(
                 AverageTravelTime=("TravelTimeToIncident", "mean"),
-                P90TravelTime=("TravelTimeToIncident", lambda x: x.quantile(0.9)),
+                P90TravelTime=("TravelTimeToIncident", lambda x: x.quantile(0.9, interpolation="lower")),
                 IncidentCount=("IncidentID", "count"),
             ).reset_index())
     
@@ -393,7 +393,7 @@ def calculate_average_response_times_by_incident_type(station_report_path, incid
     merged_df=merged_df.merge(incident_data[['incident_id','incident_type']], left_on='IncidentID', right_on='incident_id', how='inner')
     type_summary = merged_df.groupby('incident_type').agg(
         average_travel_time=('TravelTimeToIncident', 'mean'),
-        p90_travel_time=('TravelTimeToIncident', lambda x: x.quantile(0.9)),
+        p90_travel_time=('TravelTimeToIncident', lambda x: x.quantile(0.9, interpolation="lower")),
         incident_count=('IncidentID', 'count')
     )
   
