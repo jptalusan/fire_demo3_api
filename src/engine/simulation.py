@@ -411,12 +411,12 @@ def calculate_comparison_stats(baseline_result, new_result):
         baseline_station = baseline_station_dict.get(station_name, {})
         new_station = new_station_dict.get(station_name, {})
         
-        baseline_incidents = baseline_station.get('incident count', 0)
-        new_incidents = new_station.get('incident count', 0)
-        baseline_avg = baseline_station.get('travel time mean', 0)
-        new_avg = new_station.get('travel time mean', 0)
-        baseline_p90 = baseline_station.get('travel time p90', 0)
-        new_p90 = new_station.get('travel time p90', 0)
+        baseline_incidents = baseline_station.get('incident_count', 0)
+        new_incidents = new_station.get('incident_count', 0)
+        baseline_avg = baseline_station.get('travel_time_mean', 0)
+        new_avg = new_station.get('travel_time_mean', 0)
+        baseline_p90 = baseline_station.get('travel_time_p90', 0)
+        new_p90 = new_station.get('travel_time_p90', 0)
         
         station_comparison = {
             "station_id": station_name,
