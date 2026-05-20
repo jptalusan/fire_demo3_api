@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Tuple, Union
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, RootModel
 
@@ -98,7 +98,8 @@ class StationSummary(BaseModel):
     travel_time_mean: float
     incident_count: int
     travel_times: List[float]
-    average_service_time: Optional[float] = None
+    incident_locations: List[Tuple[float, float]] = []
+    total_service_time: Optional[float] = None
     service_times: List[float]
     travel_time_p90: float
 

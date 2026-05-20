@@ -307,13 +307,16 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
 
 
     
-    # Aggregate statistics per station
+    # Aggregate statistics per station. TravelTimes / IncidentLats / IncidentLons share
+    # the same row order from firstdf, so positional indices align across the three lists.
     summary_df = (firstdf.groupby("StationID").agg(
                 AverageTravelTime=("TravelTimeToIncident", "mean"),
                 P90TravelTime=("TravelTimeToIncident", lambda x: x.quantile(0.9, interpolation="lower")),
                 IncidentCount=("IncidentIndex", "count"),
                 TravelTimes=("TravelTimeToIncident", list),
-                AverageServiceTime=("Total_Service_Time", "mean"),
+                IncidentLats=("IncidentLat", list),
+                IncidentLons=("IncidentLon", list),
+                TotalServiceTime=("Total_Service_Time", "sum"),
                 ServiceTimes=("Total_Service_Time", list)
             ).reset_index())
 
@@ -348,16 +351,17 @@ def summarize_station_report_as_json(station_report_path: str, incident_report_p
             travel_time_p90 = float(row["P90TravelTime"])
             incident_count = int(row["IncidentCount"])
             travel_times = row["TravelTimes"]
-            average_service_time = row["AverageServiceTime"]
+            incident_locations = list(zip(row["IncidentLats"], row["IncidentLons"]))
+            total_service_time = row["TotalServiceTime"]
             service_times = row["ServiceTimes"]
-            
 
             summary_json.append({
                 station_id: {
                     "travel_time_mean": travel_time_mean,
                     "incident_count": incident_count,
                     "travel_times": travel_times,
-                    "average_service_time": average_service_time,
+                    "incident_locations": incident_locations,
+                    "total_service_time": total_service_time,
                     "service_times": service_times,
                     "travel_time_p90": travel_time_p90
                 }
