@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 
+from backend.config import ensure_runtime_dirs
 from backend.routes import auth, incidents, jobs, stations, system
 from db.models import Base
 from db.session import engine as db_engine
@@ -58,5 +59,9 @@ app.include_router(stations.router, prefix="/api/stations", tags=["stations"])
 
 @app.on_event("startup")
 def on_startup() -> None:
+    # storage/, logs/, data/ are gitignored — make sure they exist before we try
+    # to open the SQLite file or write per-run logs. Without this, a fresh clone
+    # crashes on first boot with "unable to open database file".
+    ensure_runtime_dirs()
     logger.info("Creating database tables if missing.")
     Base.metadata.create_all(bind=db_engine)

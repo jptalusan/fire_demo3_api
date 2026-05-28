@@ -125,15 +125,21 @@ def test_process_job_run_comparison_stores_all_legs(db_session, monkeypatch, red
     assert len(fake.calls) == 2
 
 
-def test_process_job_comparison_error_status_when_a_leg_fails(db_session, monkeypatch, redirect_logs):
+def test_process_job_marks_failed_when_sim_returns_error_status(db_session, monkeypatch, redirect_logs):
+    """A simulator returning {"status":"error", ...} must fail the job, not silently mark it done.
+
+    Regression for a real bug found during a fresh-clone setup walk: a missing
+    data file made the engine return an error dict, the worker called
+    mark_job_done unconditionally, and the user saw a "successful" job with no
+    real result. The worker now inspects the result and fails the job.
+    """
     fake = _FakeSim({"status": "error", "error": "boom"})
     monkeypatch.setattr(processor_mod, "default_simulator", lambda: fake)
     job = _mkjob(db_session, "run-comparison", {"baseline": {}, "newConfig": {}})
     process_job(db_session, job)
-    result = crud.get_job(db_session, job.id).result
-    # Job still completes (done), but the comparison status reflects the failure.
-    assert crud.get_job(db_session, job.id).status == "done"
-    assert result["status"] == "error"
+    refreshed = crud.get_job(db_session, job.id)
+    assert refreshed.status == "failed"
+    assert "boom" in (refreshed.error or "")
 
 
 # ---------- process_job: error paths ----------

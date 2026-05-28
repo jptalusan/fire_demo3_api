@@ -33,6 +33,26 @@ async def _with_timeout(coro):
     return await asyncio.wait_for(coro, JOB_TIMEOUT_SEC)
 
 
+def _extract_sim_error(result) -> str | None:
+    """Pick out an error message from a simulator/comparison result, if any.
+
+    `run_simulation_internal` returns a dict; on failure it has
+    {"status": "error", "error": "..."}. A comparison aggregates two legs:
+    {"baseline": {...}, "newConfig": {...}, ...} — either leg can be the failure.
+    """
+    if not isinstance(result, dict):
+        return None
+    # Check legs first — for a comparison the top-level status is "error" if any
+    # leg failed, but the per-leg dict carries the actual message.
+    for leg in ("baseline", "newConfig"):
+        sub = result.get(leg)
+        if isinstance(sub, dict) and sub.get("status") == "error":
+            return f"{leg}: {sub.get('error') or 'status=error'}"
+    if result.get("status") == "error":
+        return str(result.get("error") or "Simulation returned status=error with no message")
+    return None
+
+
 def process_job(db: Session, job: Job) -> None:
     started = time.monotonic()
     try:
@@ -46,6 +66,17 @@ def process_job(db: Session, job: Job) -> None:
         # Persist how long the simulation took inside the stored result blob too.
         if isinstance(result, dict):
             result["duration_seconds"] = round(time.monotonic() - started, 2)
+
+        # `run_simulation_internal` catches its own exceptions and returns
+        # {"status": "error", "error": ...} rather than raising. For a comparison,
+        # either leg may have failed. Treat any of those as a job failure so the
+        # status reflects reality and the UI surfaces the cause.
+        sim_error = _extract_sim_error(result)
+        if sim_error:
+            logger.error(f"Job {job.id} failed in simulator: {sim_error[:200]}")
+            crud.mark_job_failed(db, job.id, sim_error)
+            return
+
         _persist_outputs(job.id, result)
         crud.mark_job_done(db, job.id, result)
         logger.info(f"Job {job.id} done in {time.monotonic() - started:.1f}s.")

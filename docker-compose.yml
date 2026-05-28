@@ -14,7 +14,7 @@ services:
       DATABASE_URL: sqlite:////data/storage/app.db
       STORAGE_ROOT: /data/storage
       OSRM_HOST: osrm
-      OSRM_PORT: "5000"
+      OSRM_PORT: "5000"   # OSRM's port inside the compose network
     depends_on:
       osrm:
         condition: service_started
@@ -34,7 +34,7 @@ services:
       DATABASE_URL: sqlite:////data/storage/app.db
       STORAGE_ROOT: /data/storage
       OSRM_HOST: osrm
-      OSRM_PORT: "5000"
+      OSRM_PORT: "5000"   # OSRM's port inside the compose network
     depends_on:
       osrm:
         condition: service_started
@@ -45,7 +45,7 @@ services:
   osrm:
     image: osrm/osrm-backend:latest
     container_name: fire_demo3_v2_osrm
-    ports: ["5000:5000"]
+    ports: ["8080:5000"]   # host:container — osrm-routed listens on 5000 internally
     volumes:
       - ./data/osrm:/data
     command: osrm-routed --algorithm mld /data/map.osrm

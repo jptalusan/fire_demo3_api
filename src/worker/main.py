@@ -7,6 +7,7 @@ import time
 
 from sqlalchemy import text
 
+from backend.config import ensure_runtime_dirs
 from db import crud
 from db.models import Base
 from db.session import SessionLocal, engine
@@ -37,6 +38,7 @@ def wait_for_database(retries: int = 60, delay: float = 1.0) -> None:
 
 def run_worker() -> None:
     logger.info(f"Worker {WORKER_ID} starting.")
+    ensure_runtime_dirs()       # storage/, logs/, data/ are gitignored — create if missing
     wait_for_database()
     Base.metadata.create_all(bind=engine)
 
