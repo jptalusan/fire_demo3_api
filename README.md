@@ -1,148 +1,76 @@
-# Fire Demo3 API
+# fire_demo3_api_v2
 
-A FastAPI application that serves data files.
+Fire simulator backend, restructured to match the industry-standard layout used by
+the EmergencyResponse-gym `develop` branch. Same simulator engine and route surface
+as `fire_demo3_api`, wrapped in auth + DB-backed job queue + worker.
 
-## Installation
+## Layout
 
-Install dependencies:
+```
+src/
+  backend/        FastAPI app: config, routes, schemas, services
+    routes/       auth, jobs, engine, incidents, stations, system
+    schemas/      pydantic models (auth, engine, incidents, sim)
+    services/     auth (bcrypt+jwt), simulator (abstract + C++ subprocess impl)
+  db/             SQLAlchemy ORM, session, crud, local storage
+  engine/         Ported simulation logic (run_simulation_internal etc.)
+  core/           Path constants
+  worker/         Job-queue worker process
+tests/
+  unit/  integration/  e2e/
+configs/          YAML/JSON simulator configs
+storage/          SQLite DB + per-job artifact dirs
+data/             Static inputs (incidents, stations, models, geojson)
+logs/             Simulator run logs (gitignored)
+```
+
+## Key differences vs. fire_demo3_api
+
+| Concern | fire_demo3_api | fire_demo3_api_v2 |
+|---|---|---|
+| Persistence | Files only | SQLite + files |
+| Auth | None | JWT + bcrypt |
+| Job model | Sync `await` in request | DB job row, worker picks up |
+| Simulator coupling | Inline subprocess call | `Simulator` ABC; `CppSubprocessSimulator` impl |
+| Tests | Single notebook | `tests/{unit,integration,e2e}` |
+| Deploy | Manual uvicorn | `docker-compose` (backend + worker + OSRM) |
+
+## Quickstart (local, no Docker)
 
 ```bash
-pip install -e .
+cp .env.example .env
+uv venv && source .venv/bin/activate
+uv pip install -e ".[dev]"
+
+# place data/ assets (copy from fire_demo3_api/data) and the compiled binary at data/fire_simulator
+uvicorn backend.main:app --reload &
+python -m worker.main &
 ```
 
-## Running
-
-Run the application:
+## Quickstart (Docker)
 
 ```bash
-python src/app.py
+cp .env.example .env
+docker compose up --build
 ```
 
-Or with uvicorn:
+## Auth flow
+
+```
+POST /auth/register   {username, password}
+POST /auth/login      {username, password}      -> token (cookie + body)
+POST /jobs            SimJobPayload             (Bearer)
+GET  /jobs                                      (Bearer)
+GET  /jobs/{job_id}                             (Bearer)
+```
+
+Engine routes (`/engine/run-simulation`, `/engine/run-comparison`) are preserved as
+**synchronous** endpoints for backwards compatibility; queued mode lives under `/jobs`.
+
+## Tests
 
 ```bash
-uvicorn src.app:app --reload
-
-# With debug
-uv run uvicorn src.app:app --reload --log-level debug --host 0.0.0.0 --port 8000
+pytest -q                       # everything
+pytest tests/unit -q            # fast
+pytest -m "not slow"
 ```
-
-## API
-
-- GET /files: Returns a JSON list of files in the data directory.
-
-## TRY THIS FROM GPT
-Got it — you’re on **RHEL 8** and want to install everything needed to run this FastAPI app.
-
-Here’s a clean, step-by-step setup guide:
-
----
-
-### 🧰 1. Install system dependencies
-
-RHEL 8 ships with an older Python by default, so you’ll need to ensure Python ≥3.9 is available.
-
-```bash
-sudo dnf install -y python3 python3-pip python3-virtualenv git
-```
-
-If you want to use `uv` (the fast Python package manager mentioned in your README), install it separately:
-
-```bash
-pip install uv
-```
-
-If that fails due to permission issues, use:
-
-```bash
-python3 -m pip install --user uv
-```
-
----
-
-### 🧱 2. Clone and enter the project directory
-
-```bash
-git clone https://github.com/your-org/fire-demo3-api.git
-cd fire-demo3-api
-```
-
----
-
-### 🐍 3. (Optional but recommended) Create and activate a virtual environment
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
----
-
-### 📦 4. Install Python dependencies
-
-If your project has a `pyproject.toml` or `setup.py` file, the `-e .` installs it in *editable mode*:
-
-```bash
-pip install -e .
-```
-
-If you’re using `uv`, run:
-
-```bash
-uv pip install -e .
-```
-
----
-
-### 🚀 5. Run the FastAPI app
-
-You can run it directly with Python:
-
-```bash
-python src/app.py
-```
-
-Or, preferably, with **Uvicorn** (ASGI server):
-
-```bash
-uvicorn src.app:app --reload --host 0.0.0.0 --port 8000
-```
-
-If you used `uv`, you can do:
-
-```bash
-uv run uvicorn src.app:app --reload --log-level debug --host 0.0.0.0 --port 8000
-```
-
----
-
-### ✅ 6. Test the API
-
-Visit in your browser:
-
-```
-http://localhost:8000/files
-```
-
-Or the interactive docs:
-
-```
-http://localhost:8000/docs
-```
-
----
-
-### 🧩 Optional dependencies for development
-
-If you want to include developer tools (e.g. testing, linting):
-
-```bash
-pip install -e .[dev]
-```
-
-(Assuming your `pyproject.toml` or `setup.cfg` defines a `[project.optional-dependencies]` section.)
-
----
-
-Would you like me to show you an example of what your `pyproject.toml` or `setup.py` should contain so `pip install -e .` works correctly on RHEL 8?
-

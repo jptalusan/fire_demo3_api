@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+from typing import Dict, Literal, Union
+
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+
+
+class ErrorResponse(BaseModel):
+    status: Literal["error"] = "error"
+    error: str
+
+    model_config = ConfigDict(extra="allow")
+
+
+# ----------------------------
+# Request Models
+# ----------------------------
+
+
+class DateRangeStartEnd(BaseModel):
+    """Date range used by the incidents endpoints.
+
+    Supports multiple client key styles:
+    - start/end (used by /get-incidents filters)
+    - start_date/end_date
+    - startDate/endDate
+    """
+
+    start: str = Field(validation_alias=AliasChoices("start", "start_date", "startDate"))
+    end: str = Field(validation_alias=AliasChoices("end", "end_date", "endDate"))
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class GetIncidentsFilters(BaseModel):
+    date_range: DateRangeStartEnd = Field(
+        validation_alias=AliasChoices("date_range", "dateRange")
+    )
+    incident_type: Literal["fire", "ems_fire"] = Field(
+        validation_alias=AliasChoices("incident_type", "incidentType")
+    )
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+
+class GetIncidentsRequest(BaseModel):
+    model_id: Literal["historical_incidents"] = Field(
+        validation_alias=AliasChoices("model_id", "modelId")
+    )
+    filters: GetIncidentsFilters
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+
+class GenerateIncidentsRequest(BaseModel):
+    date_range: DateRangeStartEnd = Field(
+        validation_alias=AliasChoices("date_range", "dateRange")
+    )
+    incident_type: Literal["fire", "ems_fire"] = Field(
+        default="fire",
+        validation_alias=AliasChoices("incident_type", "incidentType")
+    )
+    model: Literal["growth_v1", "legacy"] = Field(
+        default="growth_v1",
+        validation_alias=AliasChoices("model", "modelName"),
+    )
+    seed: int = Field(default=42)
+
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+
+# ----------------------------
+# Response Models
+# ----------------------------
+
+
+class ProcessIncidentsSuccess(BaseModel):
+    status: Literal["success"] = "success"
+    incident_counts: Dict[str, int]
+    average_time_between_incidents_minutes: float
+    total_incidents: int
+
+    model_config = ConfigDict(extra="allow")
+
+
+ProcessIncidentsResponse = Union[ProcessIncidentsSuccess, ErrorResponse]

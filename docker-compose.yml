@@ -1,0 +1,51 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fire_demo3_v2_backend
+    env_file: .env
+    ports: ["8000:8000"]
+    volumes:
+      - ./storage:/data/storage
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      DATABASE_URL: sqlite:////data/storage/app.db
+      STORAGE_ROOT: /data/storage
+      OSRM_HOST: osrm
+      OSRM_PORT: "5000"
+    depends_on:
+      osrm:
+        condition: service_started
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fire_demo3_v2_worker
+    env_file: .env
+    volumes:
+      - ./storage:/data/storage
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      DATABASE_URL: sqlite:////data/storage/app.db
+      STORAGE_ROOT: /data/storage
+      OSRM_HOST: osrm
+      OSRM_PORT: "5000"
+    depends_on:
+      osrm:
+        condition: service_started
+      backend:
+        condition: service_started
+    command: python -m worker.main
+
+  osrm:
+    image: osrm/osrm-backend:latest
+    container_name: fire_demo3_v2_osrm
+    ports: ["5000:5000"]
+    volumes:
+      - ./data/osrm:/data
+    command: osrm-routed --algorithm mld /data/map.osrm

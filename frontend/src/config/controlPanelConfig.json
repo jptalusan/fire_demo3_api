@@ -1,0 +1,151 @@
+{
+  "stationData": {
+    "default": "default_stations",
+    "options": [
+      {
+        "id": "default_stations",
+        "name": "Default Fire Stations",
+        "source": "api",
+        "endpoint": "/api/stations/get-stations",
+        "description": "Standard fire station locations",
+        "grids": "custom_grid.geojson",
+        "zones": "beats_shpfile_merged.geojson",
+        "stations": "stations.csv"
+      },
+      {
+        "id": "custom_stations",
+        "name": "Custom Station Layout",
+        "source": "upload",
+        "endpoint": null,
+        "description": "User uploaded station data",
+        "grids": "custom_grid.geojson",
+        "zones": "beats_shpfile_merged.geojson",
+        "stations": "stations.csv"
+      },
+      {
+        "id": "optimized_stations",
+        "name": "Optimized with New Stations",
+        "source": "optimized",
+        "endpoint": null,
+        "description": "Existing stations plus optimized new station locations",
+        "zones": "beats_shpfile_merged.geojson",
+        "stations": "stations.csv",
+        "supportsGridSize": true,
+        "supportsNewStations": true,
+        "gridSizes": [
+          {
+            "id": "0.5_mile",
+            "name": "0.5 Mile Grid",
+            "maxNewStations": 5,
+            "grids": "dav_grids_05miles.geojson"
+          },
+          {
+            "id": "1_mile", 
+            "name": "1 Mile Grid",
+            "maxNewStations": 5,
+            "grids": "dav_grids_1miles.geojson"
+          }
+        ]
+      }
+    ]
+  },
+  "incidentModels": {
+    "default": "historical_incidents",
+    "options": [
+      {
+        "id": "historical_incidents",
+        "name": "Historical Incident Data",
+        "source": "api",
+        "endpoint": "/api/incidents/get-incidents",
+        "description": "Real historical incident patterns",
+        "supportsDateRange": true,
+        "supportsFiltering": true
+      },
+      {
+        "id": "synthetic_incidents",
+        "name": "Synthetic Incident Model",
+        "source": "api",
+        "endpoint": "/api/incidents/get-incidents",
+        "description": "AI-generated incident scenarios",
+        "supportsDateRange": true,
+        "supportsFiltering": true,
+        "requiresGeneration": true
+      }
+    ]
+  },
+  "travelTimeModels": {
+    "default": "OSRM",
+    "options": [
+      {
+        "id": "OSRM",
+        "name": "OSRM-based Travel Times",
+        "source": "calculation",
+        "endpoint": null,
+        "description": "Road network-based travel time calculation",
+        "formula": "sqrt((x2-x1)^2 + (y2-y1)^2)"
+      },
+      {
+        "id": "Arc GIS",
+        "name": "Arc GIS-based Travel Times",
+        "source": "calculation",
+        "endpoint": null,
+        "description": "Grid-based distance calculation",
+        "formula": "|x2-x1| + |y2-y1|"
+      },
+      {
+        "id": "INTERPOLATED",
+        "name": "Historical Travel Time Interpolation",
+        "source": "interpolation",
+        "endpoint": null,
+        "description": "Distance-weighted interpolation based on historical service zone data",
+        "method": "spatial-temporal"
+      }
+    ]
+  },
+  "serviceTimeModels": {
+    "default": "ml_based",
+    "options": [
+      {
+        "id": "ml_based",
+        "name": "Machine Learning Model",
+        "source": "constant",
+        "endpoint": null,
+        "description": "ML-Based Predicted Service Time",
+        "defaultValue": 30,
+        "unit": "minutes"
+      },
+      {
+        "id": "empirical_servicetimes",
+        "name": "Empirical Distribution",
+        "source": "lookup",
+        "endpoint": null,
+        "description": "Service time varies by incident type",
+        "mapping": {
+          "fire": 45,
+          "ems": 25,
+          "rescue": 60
+        }
+      }
+    ]
+  },
+  "dispatchPolicies": {
+    "default": "nearest",
+    "options": [
+      {
+        "id": "nearest",
+        "name": "Nearest Available",
+        "source": "algorithm",
+        "endpoint": null,
+        "description": "Dispatch closest available unit"
+      },
+      {
+        "id": "firebeats",
+        "name": "Fire Beats/Service Zones",
+        "source": "algorithm",
+        "endpoint": null,
+        "description": "Zone-based dispatch with service areas",
+        "requiresServiceZones": true
+      }
+    ]
+  }
+}

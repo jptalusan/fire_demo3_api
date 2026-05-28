@@ -1,0 +1,558 @@
+
+import asyncio
+import hashlib
+import subprocess
+import pandas as pd
+import core.config as constants
+
+from engine.results import summarize_station_report_as_json, calculate_average_response_times_by_incident_type
+
+
+def get_or_create_historical_incidents(start_date: str, end_date: str, incident_type: str = "fire", data_dir=None):
+    """
+    Get or create filtered historical incidents CSV file.
+    
+    Args:
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        incident_type: Either "fire" or "ems_fire"
+        data_dir: Path to data directory (uses constants.DATA_DIR if None)
+    
+    Returns:
+        str: Path to the filtered incidents CSV file
+    
+    Raises:
+        ValueError: If no incidents found in the date range
+    """
+    if data_dir is None:
+        data_dir = constants.DATA_DIR
+    
+    # Generate unique filename based on date range
+    query_hash = hashlib.md5(f"historical_incidents_{start_date}_{end_date}".encode()).hexdigest()
+    query_filename = f"historical_{start_date}_{end_date}_{query_hash[:8]}.csv"
+    query_path = data_dir / "incidents" / "historical" / incident_type / "query" / query_filename
+    
+    # Return if file already exists
+    if query_path.exists():
+        print(f"Using existing filtered incidents: {query_path}")
+        return str(query_path)
+    
+    # Create the file
+    query_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Determine source file based on incident type
+    if incident_type == "ems_fire":
+        source_file = data_dir / "incidents_export_apparatus.csv"
+    else:
+        source_file = data_dir / "incidents_export_apparatus_fire.csv"
+    
+    # Filter the source file based on date range
+    df = pd.read_csv(source_file)
+    df['datetime'] = pd.to_datetime(df['datetime'])
+    
+    # Filter by date range
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date)
+    filtered_df = df[(df['datetime'] >= start_dt) & (df['datetime'] <= end_dt)]
+    
+    if filtered_df.empty:
+        raise ValueError(f"No incidents found in date range {start_date} to {end_date}")
+    
+    # Convert back to string format for CSV
+    filtered_df['datetime'] = filtered_df['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Save the filtered query
+    filtered_df.to_csv(query_path, index=False)
+    print(f"Created filtered incidents file: {query_filename} with {len(filtered_df)} incidents")
+    
+    return str(query_path)
+
+
+def create_stations_csv_from_payload(stations_data, output_path):
+    """
+    Create a stations_with_apparatus.csv file from the payload stations data
+    
+    Args:
+        stations_data: List of station dictionaries from the payload
+        output_path: Path where to save the CSV file
+    """
+    # Define all possible apparatus types based on your example
+    apparatus_types = ['Engine_ID', 'Truck', 'Rescue', 'Hazard', 'Squad', 'FAST', 'Medic', 'Brush', 'Boat', 'UTV', 'REACH', 'Chief']
+    
+    rows = []
+    for station in stations_data:
+        # Initialize apparatus counts to empty
+        apparatus_counts = {app_type: '' for app_type in apparatus_types}
+        
+        # Fill in the apparatus counts from the payload
+        for apparatus in station.get('apparatus', []):
+            app_type = apparatus['type']
+            count = apparatus['count']
+            
+            # Map apparatus types to CSV column names
+            if app_type == 'Engine':
+                apparatus_counts['Engine_ID'] = count
+            else:
+                apparatus_counts[app_type] = count
+        
+        # Create row for CSV
+        row = {
+            'StationID': station['id'],
+            'Stations': station['name'],
+            'lat': station['lat'],
+            'lon': station['lon'],
+            'Nashville Fire Stations': f"User Station {station['id']}",  # Generic address for user-defined stations
+            **apparatus_counts
+        }
+        rows.append(row)
+    
+    # Create DataFrame and save to CSV
+    df = pd.DataFrame(rows)
+    # Ensure columns are in the right order
+    columns = ['StationID', 'Stations', 'lat', 'lon', 'Nashville Fire Stations'] + apparatus_types
+    df = df[columns]
+    df.to_csv(output_path, index=False)
+    print(f"Created user stations file: {output_path}")
+
+
+async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config_name="simulation"):
+    """
+    Internal function to run a single simulation with the given configuration.
+    This is similar to run_simulation2 but accepts config dict and custom paths.
+    
+    Args:
+        config: Configuration dictionary (baseline or newConfig)
+        data_dir: Path to data directory
+        logs_dir: Path to logs directory for this simulation
+        models_dir: Path to models directory
+        config_name: Name identifier for this configuration
+    
+    Returns:
+        dict: Simulation results
+    """
+    try:
+        # Create user-defined stations file if stations are provided
+        # Per-run isolated stations file (Fix A): lives under this run's logs_dir
+        # instead of a global path in data_dir, so concurrent calls don't collide.
+        user_stations_path = logs_dir / "user_stations.csv"
+        print("Config stations:", config.get('stations'))
+        if 'stations' in config and config['stations']:
+            create_stations_csv_from_payload(config['stations'], user_stations_path)
+        
+        # Determine incident file path based on config
+        incidents_path = str(data_dir / "incidents_small.csv")  # default
+        incident_type = config.get('incident_type', 'fire')
+        
+        if config.get('models', {}).get('incident') == 'historical_incidents':
+            # Use the filtered incidents from get-incidents endpoint
+            date_range = config.get('date_range', {})
+            if date_range.get('start_date') and date_range.get('end_date'):
+                start_date = date_range['start_date'][:10]  # Extract date part (YYYY-MM-DD)
+                end_date = date_range['end_date'][:10]
+                try:
+                    incidents_path = get_or_create_historical_incidents(start_date, end_date, incident_type, data_dir)
+                except ValueError as e:
+                    return {"status": "error", "error": str(e)}
+        
+        if config.get('models', {}).get('incident') == 'synthetic_incidents':
+            # Use synthetic incidents file
+            date_range = config.get('date_range', {})
+            if date_range.get('start_date') and date_range.get('end_date'):
+                start_date = date_range['start_date'][:10]  # Extract date part (YYYY-MM-DD)
+                end_date = date_range['end_date'][:10]
+                query_hash = hashlib.md5(f"synthetic_incidents_{start_date}_{end_date}".encode()).hexdigest()
+                query_filename = f"synthetic_{start_date}_{end_date}_{query_hash[:8]}.csv"
+                query_path = data_dir / "incidents" / "synthetic" / "query" / query_filename
+                if not query_path.exists():
+                    query_path.parent.mkdir(parents=True, exist_ok=True)
+                    from engine.incidents import predict_incidents_with_types_and_coordinates
+                    predicted_incidents_df = predict_incidents_with_types_and_coordinates(start_date, end_date, incident_type=incident_type)
+                
+                    # Convert DataFrame to list of dictionaries for CSV generation
+                    incidents = predicted_incidents_df.to_dict('records') if not predicted_incidents_df.empty else []
+                    
+                    # Convert to CSV format
+                    csv_header = "incident_id,lat,lon,incident_type,incident_level,datetime,category\n"
+                    csv_rows = []
+                    for incident in incidents:
+                        row = f"{incident['incident_id']},{incident['lat']},{incident['lon']},{incident['incident_type']},{incident['incident_level']},{incident['datetime']},{incident['category']}"
+                        csv_rows.append(row)
+                    
+                    csv_content = csv_header + "\n".join(csv_rows)
+                    
+                    # Save the synthetic query for future use
+                    with open(query_path, 'w') as f:
+                        f.write(csv_content)
+                    
+                    print(f"Generated {len(incidents)} synthetic incidents and saved to {query_filename}")
+                incidents_path = str(query_path)
+                print(f"Using synthetic incidents: {incidents_path}")
+        
+        # Map dispatch policy from config
+        dispatch_policy = "FIREBEATS"  # default
+        if config.get('dispatch_policy') == 'nearest':
+            dispatch_policy = "NEAREST"
+
+
+        travel_time_model = config.get('models', {}).get('travelTime', 'OSRM')
+        if travel_time_model == 'ARCGIS':
+            travel_time_model = "OSRM"
+        
+        # Map fire model type from config
+        fire_model_type = "ML"  # default
+        service_time_model = config.get('models', {}).get('serviceTime', 'ml_based')
+        if service_time_model == 'ml_based':
+            fire_model_type = "ML"
+        elif service_time_model == 'constant':
+            fire_model_type = "CONSTANT"
+        elif service_time_model == 'empirical_servicetimes':
+            fire_model_type = "HISTORICAL"
+        
+        # DISABLE_EMS: defaults to true (fire-only); pass false in config to enable medic operations
+        disable_ems_str = "false" if config.get('disable_ems') is False else "true"
+
+        # Progress tracking: record the total incident count up front so a progress
+        # reader can compute "processed / total". Cheap one-pass line count of the CSV.
+        try:
+            with open(incidents_path, "r") as _f:
+                total_incidents_count = max(sum(1 for _ in _f) - 1, 0)  # minus header
+        except Exception:
+            total_incidents_count = 0
+        try:
+            import json as _json
+            (logs_dir / "progress.json").write_text(
+                _json.dumps({"total": total_incidents_count, "config_name": config_name})
+            )
+        except Exception:
+            pass
+
+        # Define the simulator configuration
+        sim_config = {
+            "OSRM_URL": f"http://{constants.OSRM_HOST}:{constants.OSRM_PORT}/table/v1/driving/",
+            "BASE_OSRM_URL": f"http://{constants.OSRM_HOST}:{constants.OSRM_PORT}",
+            "DISPATCH_POLICY": dispatch_policy,
+            "FIRE_MODEL_TYPE": fire_model_type,
+            "MODEL_PATH": str(models_dir / "fire_incident_gb_model.onnx") if incident_type == 'fire' else str(models_dir / "ems_model" / "fire_incident_gb_model.onnx"),
+            "FEATURES_PATH": str(models_dir / "fire_model_features_mapping.json") if incident_type == 'fire' else str(models_dir / "ems_model" / "fire_model_features_mapping.json"),
+            "TRAVEL_TIME_MODEL_TYPE": travel_time_model,
+            
+            "INCIDENTS_CSV_PATH": incidents_path,
+            "APPARATUS_CSV_PATH": str(user_stations_path if user_stations_path.exists() else data_dir / "stations_with_apparatus.csv"),
+            "BOUNDS_GEOJSON_PATH": str(data_dir / "bounds.geojson"),
+            "NFD_RESPONSE_CSV_PATH": str(data_dir / "NFDResponse.csv"),
+            "RESOLUTION_STATS_CSV_PATH": str(data_dir / "response_time_summary2.csv"),
+            
+            "MEAN_MATRIX_PATH": str(data_dir / "interpolation_fire/mean_zone_travel_time_matrix.json") if incident_type == 'fire' else str(data_dir / "interpolation_data/mean_zone_travel_time_matrix.json"),
+            "STD_MATRIX_PATH": str(data_dir / "interpolation_fire/std_zone_travel_time_matrix.json") if incident_type == 'fire' else str(data_dir / "interpolation_data/std_zone_travel_time_matrix.json"),
+            "ZONE_INFO_PATH": str(data_dir / "interpolation_fire/zone_fire_station_info.json") if incident_type == 'fire' else str(data_dir / "interpolation_data/zone_fire_station_info.json"),
+
+            "REPORT_CSV_PATH": str(logs_dir / "incident_report.csv"),
+            "STATION_REPORT_CSV_PATH": str(logs_dir / "station_report.csv"),
+            "DURATION_MATRIX_PATH": str(logs_dir / "duration_matrix.bin"),
+            "DISTANCE_MATRIX_PATH": str(logs_dir / "distance_matrix.bin"),
+            "MATRIX_CSV_PATH": str(logs_dir / "matrix.csv"),
+            "FIREBEATS_MATRIX_PATH": str(constants.BASE_DIR / "logs" / "beats.bin"),
+            "ZONE_MAP_PATH": str(data_dir / "zones.csv"),
+            "BEATS_SHAPEFILE_PATH": str(data_dir / "beats_shpfile.geojson"),
+            "RANDOM_SEED": 42,
+            "PYTHON_PATH": "../../venvBOC/bin/python",
+            "INCIDENT_MODEL_TYPE": "EMPIRICAL",
+            "HOSPITALS_CSV_PATH": str(data_dir / "ems_stats" / "hospital_locations.csv"),
+            "EMS_SCENE_TIME_STATS_PATH": str(data_dir / "ems_stats" / "scene_time_by_category.csv"),
+            "EMS_TRANSPORT_STATS_PATH": str(data_dir / "ems_stats" / "transport_prob_by_category.csv"),
+            "HOSPITAL_TIME_STATS_PATH": str(data_dir / "ems_stats" / "hospital_turnaround_overall.csv"),
+            "ZONE_HOSPITAL_PROBS_PATH": str(data_dir / "ems_stats" / "hospital_zone_probs.csv"),
+            "EMS_TRANSPORT_REPORT_PATH": str(logs_dir / "ems_transport_report.csv"),
+            "SCENE_TIME_COUPLING_PARAMS_PATH": str(data_dir / "ems_stats" / "scene_time_model_params.csv"),
+            "HOSPITAL_TIME_BY_DEST_PATH": str(data_dir / "ems_stats" / "hospital_turnaround_by_dest.csv"),
+            "MULTI_MEDIC_TRANSPORT_DIST_PATH": str(data_dir / "ems_stats" / "transport_multi_medic_dist.csv"),
+            "DISABLE_EMS": disable_ems_str,
+        }
+
+        # Construct the command for the C++ simulator
+        command = [
+            "./data/fire_simulator",
+            f"--OSRM_URL={sim_config['OSRM_URL']}",
+            f"--BASE_OSRM_URL={sim_config['BASE_OSRM_URL']}",
+            f"--INCIDENTS_CSV_PATH={sim_config['INCIDENTS_CSV_PATH']}",
+            f"--APPARATUS_CSV_PATH={sim_config['APPARATUS_CSV_PATH']}",
+            f"--FIRE_MODEL_TYPE={sim_config['FIRE_MODEL_TYPE']}",
+            f"--MODEL_PATH={sim_config['MODEL_PATH']}",
+            f"--FEATURES_PATH={sim_config['FEATURES_PATH']}",
+            f"--TRAVEL_TIME_MODEL_TYPE={sim_config['TRAVEL_TIME_MODEL_TYPE']}",
+            f"--MEAN_MATRIX_PATH={sim_config['MEAN_MATRIX_PATH']}",
+            f"--STD_MATRIX_PATH={sim_config['STD_MATRIX_PATH']}",
+            f"--ZONE_INFO_PATH={sim_config['ZONE_INFO_PATH']}",
+            f"--DISPATCH_POLICY={sim_config['DISPATCH_POLICY']}",
+            f"--BOUNDS_GEOJSON_PATH={sim_config['BOUNDS_GEOJSON_PATH']}",
+            f"--NFD_RESPONSE_CSV_PATH={sim_config['NFD_RESPONSE_CSV_PATH']}",
+            f"--RESOLUTION_STATS_CSV_PATH={sim_config['RESOLUTION_STATS_CSV_PATH']}",
+            f"--REPORT_CSV_PATH={sim_config['REPORT_CSV_PATH']}",
+            f"--STATION_REPORT_CSV_PATH={sim_config['STATION_REPORT_CSV_PATH']}",
+            f"--DURATION_MATRIX_PATH={sim_config['DURATION_MATRIX_PATH']}",
+            f"--DISTANCE_MATRIX_PATH={sim_config['DISTANCE_MATRIX_PATH']}",
+            f"--MATRIX_CSV_PATH={sim_config['MATRIX_CSV_PATH']}",
+            f"--FIREBEATS_MATRIX_PATH={sim_config['FIREBEATS_MATRIX_PATH']}",
+            f"--ZONE_MAP_PATH={sim_config['ZONE_MAP_PATH']}",
+            f"--BEATS_SHAPEFILE_PATH={sim_config['BEATS_SHAPEFILE_PATH']}",
+            f"--RANDOM_SEED={sim_config['RANDOM_SEED']}",
+            f"--PYTHON_PATH={sim_config['PYTHON_PATH']}",
+            f"--INCIDENT_MODEL_TYPE={sim_config['INCIDENT_MODEL_TYPE']}",
+            f"--HOSPITALS_CSV_PATH={sim_config['HOSPITALS_CSV_PATH']}",
+            f"--EMS_SCENE_TIME_STATS_PATH={sim_config['EMS_SCENE_TIME_STATS_PATH']}",
+            f"--EMS_TRANSPORT_STATS_PATH={sim_config['EMS_TRANSPORT_STATS_PATH']}",
+            f"--HOSPITAL_TIME_STATS_PATH={sim_config['HOSPITAL_TIME_STATS_PATH']}",
+            f"--ZONE_HOSPITAL_PROBS_PATH={sim_config['ZONE_HOSPITAL_PROBS_PATH']}",
+            f"--EMS_TRANSPORT_REPORT_PATH={sim_config['EMS_TRANSPORT_REPORT_PATH']}",
+            f"--SCENE_TIME_COUPLING_PARAMS_PATH={sim_config['SCENE_TIME_COUPLING_PARAMS_PATH']}",
+            f"--HOSPITAL_TIME_BY_DEST_PATH={sim_config['HOSPITAL_TIME_BY_DEST_PATH']}",
+            f"--MULTI_MEDIC_TRANSPORT_DIST_PATH={sim_config['MULTI_MEDIC_TRANSPORT_DIST_PATH']}",
+            f"--DISABLE_EMS={sim_config['DISABLE_EMS']}",
+        ]
+        
+        print(f"Executing {config_name} simulation...")
+        print("Command:", " ".join(command))
+
+        # Stream stdout to a live sim.log so a progress reader can count incident
+        # lines while the run is in flight. stderr stays piped for error reporting.
+        sim_log_path = logs_dir / "sim.log"
+        with open(sim_log_path, "wb") as _logf:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=_logf,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                _, stderr = await process.communicate()
+            except asyncio.CancelledError:
+                # A per-job timeout (or shutdown) cancelled us — kill the child so
+                # it doesn't keep running (and hogging OSRM) orphaned.
+                try:
+                    process.kill()
+                    await process.wait()
+                except Exception:
+                    pass
+                raise
+        print(f"[{config_name}] simulator stderr:", stderr.decode())
+        if process.returncode != 0:
+            raise subprocess.CalledProcessError(process.returncode, command[0], stderr.decode())
+        
+        # Process results
+        station_report, total_incidents, average_response_time, coverage_percent, vehicle_json, P90_continuous = summarize_station_report_as_json(
+            sim_config['STATION_REPORT_CSV_PATH'], 
+            sim_config['REPORT_CSV_PATH']
+        )
+        average_response_time_per_incident_type = calculate_average_response_times_by_incident_type(
+            sim_config['STATION_REPORT_CSV_PATH'], 
+            sim_config['REPORT_CSV_PATH'],
+            incidents_path
+        )
+        
+        print(f"{config_name} simulation completed successfully.")
+        
+        return {
+            "status": "success", 
+            "total_incidents": total_incidents, 
+            "station_report": station_report, 
+            "average_response_time": float(average_response_time), 
+            "coverage_percent": coverage_percent, 
+            "vehicle_report": vehicle_json, 
+            "average_response_time_per_incident_type": average_response_time_per_incident_type, 
+            "P90_continuous": float(P90_continuous)
+        }
+        
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing {config_name} simulation:", e.stderr)
+        return {"status": "error", "error": e.stderr}
+    except Exception as e:
+        print(f"Error in {config_name} simulation:", str(e))
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "error": str(e)}
+
+
+
+def calculate_comparison_stats(baseline_result, new_result):
+    """
+    Calculate comparative statistics between baseline and new configuration.
+    
+    Returns detailed comparison metrics including improvements and differences.
+    """
+    comparison = {
+        "overall_metrics": {},
+        "station_comparison": [],
+        "incident_type_comparison": [],
+        "improvements": {},
+        "summary": {}
+    }
+    
+    # Overall metrics comparison
+    baseline_avg_response = baseline_result.get('average_response_time', 0)
+    new_avg_response = new_result.get('average_response_time', 0)
+    baseline_coverage = baseline_result.get('coverage_percent', 0)
+    new_coverage = new_result.get('coverage_percent', 0)
+    baseline_p90 = baseline_result.get('P90_continuous', 0)
+    new_p90 = new_result.get('P90_continuous', 0)
+    
+    comparison["overall_metrics"] = {
+        "average_response_time": {
+            "baseline": round(baseline_avg_response, 2),
+            "new": round(new_avg_response, 2),
+            "difference": round(new_avg_response - baseline_avg_response, 2),
+            "percent_change": round(((new_avg_response - baseline_avg_response) / baseline_avg_response * 100), 2) if baseline_avg_response > 0 else 0,
+            "improved": new_avg_response < baseline_avg_response
+        },
+        "coverage_percent": {
+            "baseline": round(baseline_coverage, 2),
+            "new": round(new_coverage, 2),
+            "difference": round(new_coverage - baseline_coverage, 2),
+            "percent_change": round(((new_coverage - baseline_coverage) / baseline_coverage * 100), 2) if baseline_coverage > 0 else 0,
+            "improved": new_coverage > baseline_coverage
+        },
+        "p90_response_time": {
+            "baseline": round(baseline_p90, 2),
+            "new": round(new_p90, 2),
+            "difference": round(new_p90 - baseline_p90, 2),
+            "percent_change": round(((new_p90 - baseline_p90) / baseline_p90 * 100), 2) if baseline_p90 > 0 else 0,
+            "improved": new_p90 < baseline_p90
+        }
+    }
+    
+    # Station-level comparison
+    baseline_stations = baseline_result.get('station_report', [])
+    new_stations = new_result.get('station_report', [])
+    
+    # Create lookup dictionaries - station_report is a list of dicts with station name as key
+    baseline_station_dict = {}
+    for station_dict in baseline_stations:
+        for station_name, station_data in station_dict.items():
+            baseline_station_dict[station_name] = station_data
+    
+    new_station_dict = {}
+    for station_dict in new_stations:
+        for station_name, station_data in station_dict.items():
+            new_station_dict[station_name] = station_data
+    
+    all_station_names = set(baseline_station_dict.keys()) | set(new_station_dict.keys())
+    
+    for station_name in sorted(all_station_names):
+        baseline_station = baseline_station_dict.get(station_name, {})
+        new_station = new_station_dict.get(station_name, {})
+        
+        baseline_incidents = baseline_station.get('incident_count', 0)
+        new_incidents = new_station.get('incident_count', 0)
+        baseline_avg = baseline_station.get('travel_time_mean', 0)
+        new_avg = new_station.get('travel_time_mean', 0)
+        baseline_p90 = baseline_station.get('travel_time_p90', 0)
+        new_p90 = new_station.get('travel_time_p90', 0)
+        
+        station_comparison = {
+            "station_id": station_name,
+            "station_name": station_name,
+            "total_incidents": {
+                "baseline": baseline_incidents,
+                "new": new_incidents,
+                "difference": new_incidents - baseline_incidents
+            },
+            "average_travel_time": {
+                "baseline": round(baseline_avg, 2) if baseline_avg else None,
+                "new": round(new_avg, 2) if new_avg else None,
+                "difference": round(new_avg - baseline_avg, 2) if (baseline_avg and new_avg) else None,
+                "improved": new_avg < baseline_avg if (baseline_avg and new_avg) else None
+            },
+            "p90_travel_time": {
+                "baseline": round(baseline_p90, 2) if baseline_p90 else None,
+                "new": round(new_p90, 2) if new_p90 else None,
+                "difference": round(new_p90 - baseline_p90, 2) if (baseline_p90 and new_p90) else None,
+                "improved": new_p90 < baseline_p90 if (baseline_p90 and new_p90) else None
+            },
+            "status": "new_station" if station_name not in baseline_station_dict else (
+                "removed_station" if station_name not in new_station_dict else "existing_station"
+            )
+        }
+        comparison["station_comparison"].append(station_comparison)
+    
+    # Incident type comparison - it's a list of dicts
+    baseline_incident_types_list = baseline_result.get('average_response_time_per_incident_type', [])
+    new_incident_types_list = new_result.get('average_response_time_per_incident_type', [])
+    
+    # Convert to dictionaries for easier lookup
+    baseline_incident_types = {}
+    for item in baseline_incident_types_list:
+        for incident_type, data in item.items():
+            baseline_incident_types[incident_type] = data
+    
+    new_incident_types = {}
+    for item in new_incident_types_list:
+        for incident_type, data in item.items():
+            new_incident_types[incident_type] = data
+    
+    all_incident_types = set(baseline_incident_types.keys()) | set(new_incident_types.keys())
+    
+    for incident_type in sorted(all_incident_types):
+        baseline_data = baseline_incident_types.get(incident_type, {})
+        new_data = new_incident_types.get(incident_type, {})
+        
+        baseline_time = baseline_data.get('average_travel_time', 0)
+        new_time = new_data.get('average_travel_time', 0)
+        baseline_count = baseline_data.get('incident_count', 0)
+        new_count = new_data.get('incident_count', 0)
+        
+        incident_comparison = {
+            "incident_type": incident_type,
+            "incident_count": {
+                "baseline": baseline_count,
+                "new": new_count,
+                "difference": new_count - baseline_count
+            },
+            "average_travel_time": {
+                "baseline": round(baseline_time, 2) if baseline_time else None,
+                "new": round(new_time, 2) if new_time else None,
+                "difference": round(new_time - baseline_time, 2) if (baseline_time and new_time) else None,
+                "percent_change": round(((new_time - baseline_time) / baseline_time * 100), 2) if baseline_time > 0 else None,
+                "improved": new_time < baseline_time if (baseline_time and new_time) else None
+            }
+        }
+        comparison["incident_type_comparison"].append(incident_comparison)
+    
+    # Calculate improvements summary
+    improvements = {
+        "response_time_improved": new_avg_response < baseline_avg_response,
+        "coverage_improved": new_coverage > baseline_coverage,
+        "p90_improved": new_p90 < baseline_p90,
+        "stations_with_better_response": sum(1 for s in comparison["station_comparison"] 
+                                             if s["average_travel_time"].get("improved")),
+        "stations_with_worse_response": sum(1 for s in comparison["station_comparison"] 
+                                            if not s["average_travel_time"].get("improved")),
+        "new_stations_added": sum(1 for s in comparison["station_comparison"] if s["status"] == "new_station"),
+        "stations_removed": sum(1 for s in comparison["station_comparison"] if s["status"] == "removed_station")
+    }
+    comparison["improvements"] = improvements
+    
+    # Summary text
+    summary = {
+        "overall_assessment": "improved" if (improvements["response_time_improved"] and improvements["coverage_improved"]) else 
+                             "mixed" if (improvements["response_time_improved"] or improvements["coverage_improved"]) else 
+                             "degraded",
+        "key_findings": []
+    }
+    
+    if improvements["response_time_improved"]:
+        summary["key_findings"].append(f"Average response time improved by {abs(comparison['overall_metrics']['average_response_time']['difference']):.2f} seconds ({abs(comparison['overall_metrics']['average_response_time']['percent_change']):.1f}%)")
+    else:
+        summary["key_findings"].append(f"Average response time increased by {abs(comparison['overall_metrics']['average_response_time']['difference']):.2f} seconds ({abs(comparison['overall_metrics']['average_response_time']['percent_change']):.1f}%)")
+    
+    if improvements["coverage_improved"]:
+        summary["key_findings"].append(f"Coverage improved by {comparison['overall_metrics']['coverage_percent']['difference']:.2f} percentage points")
+    else:
+        summary["key_findings"].append(f"Coverage decreased by {abs(comparison['overall_metrics']['coverage_percent']['difference']):.2f} percentage points")
+    
+    if improvements["new_stations_added"] > 0:
+        summary["key_findings"].append(f"{improvements['new_stations_added']} new station(s) added")
+    
+    if improvements["stations_removed"] > 0:
+        summary["key_findings"].append(f"{improvements['stations_removed']} station(s) removed")
+    
+    comparison["summary"] = summary
+    
+    return comparison
