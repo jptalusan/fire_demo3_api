@@ -1,16 +1,13 @@
-// Central API configuration for the v2 backend.
-// Override at build/run time with VITE_API_BASE.
+// Central API base URL. Empty string by default → all calls are RELATIVE
+// (`/api/...`, `/auth/...`). The Vite dev server (vite.config.ts → server.proxy)
+// forwards them to the backend, so the backend's port and host live in exactly
+// one place: VITE_API_TARGET in .env. In production, your reverse proxy
+// (nginx / CDN / platform) does the same forwarding.
 //
-// IMPORTANT: the auth cookie is SameSite=Lax, so it is only sent when the page
-// and the API are the SAME SITE. "localhost" and "127.0.0.1" count as different
-// sites, so we derive the API host from the page host (window.location.hostname)
-// to keep them aligned. This makes login work whether you open localhost:5173
-// or 127.0.0.1:5173.
-function resolveApiBase(): string {
-  const override = (import.meta as any).env?.VITE_API_BASE;
-  if (override) return override;
-  const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  return `http://${host}:8123`;
-}
-
-export const API_BASE: string = resolveApiBase();
+// Override with VITE_API_BASE when the frontend is deployed on a different
+// origin than the API and you can't (or don't want to) proxy:
+//   VITE_API_BASE=https://api.example.com npm run build
+// In that case the backend MUST run on HTTPS and set CORS + a SameSite=None
+// Secure cookie. See README.
+export const API_BASE: string =
+  ((import.meta as any).env?.VITE_API_BASE as string | undefined) ?? '';
