@@ -139,7 +139,7 @@ A page refresh keeps the user logged in (cookie) **and** preserves any in-flight
 
 ```bash
 # Save the spec
-curl -s http://localhost:8000/api/v1/openapi.json > openapi.json
+curl -s http://localhost:${BACKEND_PORT:-8000}/api/v1/openapi.json > openapi.json
 
 # Generate a TypeScript types file
 npx openapi-typescript openapi.json -o src/api-types.ts

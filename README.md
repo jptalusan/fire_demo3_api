@@ -52,6 +52,9 @@ frontend/         Vite + React UI (optional)
 
 ## Quickstart (local, no Docker)
 
+The system runs as **three processes**: backend, worker, and (optional) frontend.
+Each terminal needs the venv active and `.env` loaded into the shell.
+
 ```bash
 # 1. clone
 git clone -b backend-v2 https://github.com/jptalusan/fire_demo3_api.git
@@ -65,20 +68,42 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"        # uv pip install -e ".[dev]" also works
 
 # 4. put your data assets in data/  (see "Required data files" below)
+```
 
-# 5. start the API (port comes from .env — change BACKEND_PORT if you like)
-uvicorn backend.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8000}
-
-# 6. in a second terminal, start the worker
+**Terminal 1 — backend (port from `.env`):**
+```bash
 source .venv/bin/activate
+set -a && source .env && set +a                 # load BACKEND_PORT etc.
+uvicorn backend.main:app --host 0.0.0.0 --port $BACKEND_PORT
+```
+
+**Terminal 2 — worker:**
+```bash
+source .venv/bin/activate
+set -a && source .env && set +a
 python -m worker.main
 ```
 
-Verify (substitute your `$BACKEND_PORT`):
-
+**Terminal 3 — frontend (optional, Vite dev server):**
 ```bash
-curl http://localhost:${BACKEND_PORT:-8000}/health    # {"status":"ok"}
-open  http://localhost:${BACKEND_PORT:-8000}/docs     # interactive Swagger UI
+set -a && source .env && set +a                 # for VITE_PORT, VITE_API_TARGET
+cd frontend
+npm install                                     # first time only
+npx vite --port $VITE_PORT
+```
+
+### Verify
+```bash
+curl http://localhost:$BACKEND_PORT/health      # {"status":"ok"}
+open  http://localhost:$BACKEND_PORT/docs       # interactive Swagger UI
+open  http://localhost:$VITE_PORT               # the frontend (if running)
+```
+
+### Stop everything
+```bash
+pkill -f "uvicorn backend.main"
+pkill -f "worker.main"
+pkill -f vite
 ```
 
 ---

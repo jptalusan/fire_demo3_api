@@ -4,9 +4,10 @@ Complete reference for the backend API: endpoints, auth, the **job model**, and 
 full **payload / result schemas** for `run-simulation` and `run-comparison` (which the
 auto-generated OpenAPI can't fully express because the job payload is a free-form object).
 
-- Base URL (dev): `http://127.0.0.1:8123`
+- Base URL (dev): `http://localhost:$BACKEND_PORT` (default `8000`)
 - Interactive docs: `/docs` (Swagger) · `/redoc` · raw spec `/api/v1/openapi.json`
 - Auth: HttpOnly cookie set by `POST /auth/login`, sent automatically (same-site).
+- How to start the backend: see [`README.md`](./README.md) §"Quickstart (local, no Docker)".
 
 ---
 
@@ -428,7 +429,7 @@ string (e.g. timeout / unresolvable-config message).
 ## 10. End-to-end example (cURL)
 
 ```bash
-BASE=http://127.0.0.1:8123
+BASE=http://localhost:${BACKEND_PORT:-8000}
 # 1. login (store cookie)
 curl -s -c cookies.txt -X POST $BASE/auth/login \
   -H 'Content-Type: application/json' \
