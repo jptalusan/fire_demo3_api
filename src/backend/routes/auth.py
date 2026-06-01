@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
+from backend.config import settings
 from backend.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 from backend.services.auth import (
     ACCESS_TOKEN_TTL_HOURS,
@@ -34,12 +35,15 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
             detail="Invalid username/password",
         )
     token = create_token(user.id)
+    # Cookie attributes come from settings so a cross-domain deploy can flip them
+    # without touching code. Cross-site needs samesite="none" + secure=True (HTTPS).
     response.set_cookie(
         key="auth_token",
         value=token,
         httponly=True,
         max_age=ACCESS_TOKEN_TTL_HOURS * 60 * 60,
-        samesite="lax",
+        samesite=settings.COOKIE_SAMESITE,
+        secure=settings.COOKIE_SECURE,
     )
     return TokenResponse(access_token=token)
 
@@ -56,5 +60,9 @@ def me(user_id: int = Depends(get_current_user), db: Session = Depends(get_db)) 
 @router.post("/logout")
 def logout(response: Response) -> dict:
     """Clear the auth cookie. Bearer-token clients just drop their token."""
-    response.delete_cookie(key="auth_token", samesite="lax")
+    response.delete_cookie(
+        key="auth_token",
+        samesite=settings.COOKIE_SAMESITE,
+        secure=settings.COOKIE_SECURE,
+    )
     return {"status": "ok"}

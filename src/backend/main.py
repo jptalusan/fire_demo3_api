@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 
-from backend.config import ensure_runtime_dirs
+from backend.config import ensure_runtime_dirs, settings
 from backend.routes import auth, incidents, jobs, stations, system
 from db.models import Base
 from db.session import engine as db_engine
@@ -20,17 +20,14 @@ app = FastAPI(
     openapi_url="/api/v1/openapi.json",
 )
 
+# CORS — origins come from CORS_ALLOWED_ORIGINS (.env). With credentials enabled
+# the spec forbids '*'; if you set CORS_ALLOWED_ORIGINS=* we disable credentials
+# automatically so the middleware still works.
+_allow_credentials = settings.CORS_ALLOWED_ORIGINS != ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ],
-    allow_credentials=True,
+    allow_origins=settings.CORS_ALLOWED_ORIGINS,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

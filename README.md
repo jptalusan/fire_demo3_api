@@ -58,19 +58,19 @@ pip install -e ".[dev]"        # uv pip install -e ".[dev]" also works
 
 # 4. put your data assets in data/  (see "Required data files" below)
 
-# 5. start the API on port 8000 (any port works)
-uvicorn backend.main:app --port 8000
+# 5. start the API (port comes from .env — change BACKEND_PORT if you like)
+uvicorn backend.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8000}
 
 # 6. in a second terminal, start the worker
 source .venv/bin/activate
 python -m worker.main
 ```
 
-Verify:
+Verify (substitute your `$BACKEND_PORT`):
 
 ```bash
-curl http://localhost:8000/health        # {"status":"ok"}
-open  http://localhost:8000/docs         # interactive Swagger UI
+curl http://localhost:${BACKEND_PORT:-8000}/health    # {"status":"ok"}
+open  http://localhost:${BACKEND_PORT:-8000}/docs     # interactive Swagger UI
 ```
 
 ---
@@ -122,6 +122,22 @@ SIMULATOR_BINARY=./data/fire_simulator         # path to the C++ binary
 
 ---
 
+## Frontend on a different domain
+
+If your frontend lives on a different origin than the API (e.g. `https://app.example.com` and `https://api.example.com`), set these in the backend's `.env`:
+
+```
+CORS_ALLOWED_ORIGINS=https://app.example.com,https://staging.example.com
+COOKIE_SAMESITE=none        # required for cross-site cookies
+COOKIE_SECURE=true          # required when SameSite=None; needs HTTPS
+```
+
+Frontend side: build with `VITE_API_BASE=https://api.example.com` and use `fetch(..., {credentials: "include"})`. Backend MUST be served over HTTPS for the `Secure` cookie to be accepted.
+
+Skip cookies entirely if you prefer: set `Authorization: Bearer <access_token>` (from `/auth/login`) on every call; only `CORS_ALLOWED_ORIGINS` then needs to include the frontend origin.
+
+---
+
 ## Required data files (`data/`)
 
 These come from your simulator install — drop them into `./data/`:
@@ -146,7 +162,7 @@ The simulator will fail with a clear "file not found" message if any of these ar
 All `/api/*` endpoints require a session cookie set by `POST /auth/login`.
 
 ```bash
-B=http://localhost:8000
+B=http://localhost:${BACKEND_PORT:-8000}
 
 # create an account
 curl -X POST $B/auth/register \
