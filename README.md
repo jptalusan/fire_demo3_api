@@ -58,19 +58,19 @@ pip install -e ".[dev]"        # uv pip install -e ".[dev]" also works
 
 # 4. put your data assets in data/  (see "Required data files" below)
 
-# 5. start the API (port comes from .env — change BACKEND_PORT if you like)
-uvicorn backend.main:app --host 0.0.0.0 --port ${BACKEND_PORT:-8000}
+# 5. start the API on port 8000 (any port works)
+uvicorn backend.main:app --port 8000
 
 # 6. in a second terminal, start the worker
 source .venv/bin/activate
 python -m worker.main
 ```
 
-Verify (substitute your `$BACKEND_PORT`):
+Verify:
 
 ```bash
-curl http://localhost:${BACKEND_PORT:-8000}/health    # {"status":"ok"}
-open  http://localhost:${BACKEND_PORT:-8000}/docs     # interactive Swagger UI
+curl http://localhost:8000/health        # {"status":"ok"}
+open  http://localhost:8000/docs         # interactive Swagger UI
 ```
 
 ---
@@ -146,7 +146,7 @@ The simulator will fail with a clear "file not found" message if any of these ar
 All `/api/*` endpoints require a session cookie set by `POST /auth/login`.
 
 ```bash
-B=http://localhost:${BACKEND_PORT:-8000}
+B=http://localhost:8000
 
 # create an account
 curl -X POST $B/auth/register \

@@ -5,8 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: fire_demo3_v2_backend
     env_file: .env
-    # Host port from $BACKEND_PORT in .env (default 8000); container always 8000.
-    ports: ["${BACKEND_PORT:-8000}:8000"]
+    ports: ["8000:8000"]
     volumes:
       - ./storage:/data/storage
       - ./data:/app/data
@@ -46,8 +45,7 @@ services:
   osrm:
     image: osrm/osrm-backend:latest
     container_name: fire_demo3_v2_osrm
-    # Host port from $OSRM_HOST_PORT in .env (default 8080); container is always 5000.
-    ports: ["${OSRM_HOST_PORT:-8080}:5000"]
+    ports: ["8080:5000"]   # host:container — osrm-routed listens on 5000 internally
     volumes:
       - ./data/osrm:/data
     command: osrm-routed --algorithm mld /data/map.osrm

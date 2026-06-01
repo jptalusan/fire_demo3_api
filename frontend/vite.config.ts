@@ -56,16 +56,8 @@
       chunkSizeWarningLimit: 1000, 
     },
     server: {
-      // VITE_PORT lets you change the dev server port without touching code.
-      port: Number(process.env.VITE_PORT ?? 5173),
+      port: 3000,
       open: true,
-      allowedHosts: ['hobvmisap57.nashville.org', 'hobvmisap57'],
-      // Dev proxy: the frontend makes RELATIVE calls (/api/..., /auth/...).
-      // Vite forwards them to the backend, so the backend port lives in exactly
-      // one place — VITE_API_TARGET in .env — not in JS code.
-      proxy: {
-        '/api':  { target: process.env.VITE_API_TARGET ?? 'http://localhost:8000', changeOrigin: true },
-        '/auth': { target: process.env.VITE_API_TARGET ?? 'http://localhost:8000', changeOrigin: true },
-      },
+      allowedHosts: ['hobvmisap57.nashville.org', 'hobvmisap57']
     },
   });
