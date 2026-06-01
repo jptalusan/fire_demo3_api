@@ -3,7 +3,15 @@
 FastAPI backend for the fire/EMS dispatch simulator. Cookie-based JWT auth,
 SQLite-backed job queue, and a background worker that drives the C++ simulator.
 
-Full API contract: [`API_REFERENCE.md`](./API_REFERENCE.md).
+### Documentation
+
+| Doc | When to open it |
+|---|---|
+| **[`FRONTEND_GUIDE.md`](./FRONTEND_GUIDE.md)** | You're writing a frontend against this API — landing page with every knob and link |
+| [`API_REFERENCE.md`](./API_REFERENCE.md) | Field-by-field endpoint reference (all enums, payload + result shapes) |
+| [`DEMO.pdf`](./DEMO.pdf) | Slide deck — architecture, lifecycle, payload examples, run commands |
+| `/docs` on a running backend | Interactive Swagger UI to try endpoints in the browser |
+| `/api/v1/openapi.json` on a running backend | Raw spec for client generation (`openapi-typescript`, Postman) |
 
 ---
 
