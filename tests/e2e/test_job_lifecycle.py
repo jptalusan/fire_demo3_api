@@ -1,15 +1,11 @@
 """End-to-end: submit a job, run one worker tick with a fake simulator, fetch result.
 
-This avoids the real C++ binary by monkeypatching `default_simulator` to a fake.
-Marked `slow` only because it exercises the full pipeline; still <1s.
+The Simulator is injected via `sim_factory=` — no monkey-patching of module globals.
 """
-
-import pytest
 
 from backend.services import simulator as sim_mod
 from db import crud
 from db.session import SessionLocal
-from worker import processor as processor_mod
 from worker.processor import process_job
 
 
@@ -21,9 +17,7 @@ class FakeSim(sim_mod.Simulator):
         )
 
 
-def test_full_job_pipeline(client, auth_headers, monkeypatch):
-    monkeypatch.setattr(processor_mod, "default_simulator", lambda: FakeSim())
-
+def test_full_job_pipeline(client, auth_headers, tmp_path):
     r = client.post(
         "/api/jobs",
         headers=auth_headers,
@@ -36,7 +30,7 @@ def test_full_job_pipeline(client, auth_headers, monkeypatch):
     try:
         claimed = crud.claim_next_pending_job(db, worker_id="test")
         assert claimed.id == job_id
-        process_job(db, claimed)
+        process_job(db, claimed, sim_factory=lambda: FakeSim(), logs_root=tmp_path)
     finally:
         db.close()
 

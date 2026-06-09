@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 import core.config as constants
@@ -121,12 +121,29 @@ def submit(
 
 
 @router.get("", response_model=list[JobResponse])
-def list_all(user_id: int = Depends(get_current_user), db: Session = Depends(get_db)):
-    """List the authenticated user's jobs, newest first. Each carries its config
-    (`payload`), `result` once done, `duration_seconds`, and timestamps."""
+def list_all(
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    compact: bool = Query(
+        False,
+        description="If true, omit `payload` and `result` (sets them to null). "
+        "Useful for history lists where you don't want to load tens of KB per row.",
+    ),
+):
+    """List the authenticated user's jobs, newest first.
+
+    Each row carries its config (`payload`), `result` once done,
+    `duration_seconds`, and timestamps. Pass `?compact=true` to drop the
+    `payload` and `result` blobs.
+    """
     jobs = crud.list_jobs(db, user_id=user_id)
     positions = {jid: i + 1 for i, jid in enumerate(crud._pending_queue_ids(db))}
-    return [_serialize(j, queue_position=positions.get(j.id)) for j in jobs]
+    out = [_serialize(j, queue_position=positions.get(j.id)) for j in jobs]
+    if compact:
+        for r in out:
+            r.payload = None
+            r.result = None
+    return out
 
 
 # Declared before /{job_id} so "queue" isn't captured as a job id.
@@ -135,6 +152,33 @@ def queue_status(user_id: int = Depends(get_current_user), db: Session = Depends
     """Queue snapshot: pending/running counts across all users, your counts, and
     your earliest job's 1-based position in the global queue."""
     return QueueStatus(**crud.queue_status(db, user_id))
+
+
+@router.post("/{job_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
+def cancel(
+    job_id: int,
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Cancel a pending or running job owned by the caller.
+
+    Outcomes (returned in `result`):
+
+    - `cancelled_pending` — job was pending; status flipped to `failed` immediately.
+    - `cancel_requested` — job was running; the worker's watchdog will stop it
+      within a few seconds.
+    - `already_terminal` — job is already `done` or `failed`; nothing to do (returns 200).
+
+    Returns 404 if the job doesn't exist or isn't yours.
+    """
+    outcome = crud.request_cancel(db, job_id=job_id, user_id=user_id)
+    if outcome == "not_found":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    job = crud.get_job(db, job_id)
+    return {
+        "result": outcome,
+        "job": _serialize(job, queue_position=crud.queue_position(db, job.id)).model_dump(),
+    }
 
 
 @router.get("/{job_id}/progress", response_model=JobProgress)

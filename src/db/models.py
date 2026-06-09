@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String
 from sqlalchemy.orm import DeclarativeBase
 
 
@@ -40,3 +40,6 @@ class Job(Base):
     max_attempts = Column(Integer, default=3)
     priority = Column(Integer, default=0)
     locked_by = Column(String, nullable=True)
+    # User can request cancellation at any point. Worker watchdog polls this and
+    # cancels the in-flight task; for pending jobs the route flips status directly.
+    cancel_requested = Column(Boolean, nullable=False, default=False, server_default="0")

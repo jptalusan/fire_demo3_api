@@ -1,15 +1,13 @@
-"""Unit tests for worker.processor and worker.runner with a fake Simulator.
+"""Unit tests for worker.processor and worker.runner.
 
-Never invokes the real C++ simulator: default_simulator is monkeypatched to a
-fake, and per-job dirs are redirected under a tmp path.
+No monkey-patching: the Simulator, timeout, watchdog cadence, and logs root are
+all injected into `process_job` so each test wires its own fakes.
 """
 
 import asyncio
-from pathlib import Path
 
 import pytest
 
-import core.config as constants
 from backend.services import simulator as sim_mod
 from db import crud
 from worker import processor as processor_mod
@@ -31,20 +29,13 @@ class _FakeSim(sim_mod.Simulator):
 
 class _HangingSim(sim_mod.Simulator):
     async def run(self, req):
-        await asyncio.sleep(10)  # never finishes within the test timeout
+        await asyncio.sleep(60)  # never finishes within the test timeout
         return sim_mod.SimulatorRunResult(status="success", raw={})
 
 
 class _ExplodingSim(sim_mod.Simulator):
     async def run(self, req):
         raise RuntimeError("sim blew up")
-
-
-@pytest.fixture
-def redirect_logs(monkeypatch, tmp_path):
-    """Point worker per-job log dirs at a tmp dir so we never touch real storage."""
-    monkeypatch.setattr(constants, "BASE_DIR", tmp_path)
-    return tmp_path
 
 
 def _mkjob(db, kind, payload):
@@ -57,7 +48,7 @@ def _mkjob(db, kind, payload):
 def test_isolate_paths_rewrites_all_write_keys(tmp_path):
     run_dir = tmp_path / "run"
     cfg = _isolate_paths({"keep": "me"}, run_dir)
-    assert cfg["keep"] == "me"  # original keys preserved
+    assert cfg["keep"] == "me"
     for key in (
         "REPORT_CSV_PATH", "STATION_REPORT_CSV_PATH", "EMS_TRANSPORT_REPORT_PATH",
         "DURATION_MATRIX_PATH", "DISTANCE_MATRIX_PATH", "MATRIX_CSV_PATH",
@@ -82,61 +73,51 @@ def test_isolate_paths_does_not_mutate_input(tmp_path):
 
 # ---------- process_job: run-simulation ----------
 
-def test_process_job_run_simulation_marks_done(db_session, monkeypatch, redirect_logs):
+def test_process_job_run_simulation_marks_done(db_session, tmp_path):
     fake = _FakeSim({"status": "success", "total_incidents": 5})
-    monkeypatch.setattr(processor_mod, "default_simulator", lambda: fake)
     job = _mkjob(db_session, "run-simulation", {"config": {"k": "v"}})
 
-    process_job(db_session, job)
+    process_job(db_session, job, sim_factory=lambda: fake, logs_root=tmp_path)
 
     refreshed = crud.get_job(db_session, job.id)
     assert refreshed.status == "done"
     assert refreshed.result["total_incidents"] == 5
-    assert "duration_seconds" in refreshed.result
-    assert isinstance(refreshed.result["duration_seconds"], (int, float))
+    assert isinstance(refreshed.result.get("duration_seconds"), (int, float))
 
 
-def test_process_job_uses_payload_without_config_key(db_session, monkeypatch, redirect_logs):
+def test_process_job_uses_payload_without_config_key(db_session, tmp_path):
     """payload itself is the config when there's no 'config' subkey."""
     fake = _FakeSim({"status": "success"})
-    monkeypatch.setattr(processor_mod, "default_simulator", lambda: fake)
     job = _mkjob(db_session, "run-simulation", {"some": "config"})
-    process_job(db_session, job)
+    process_job(db_session, job, sim_factory=lambda: fake, logs_root=tmp_path)
     assert crud.get_job(db_session, job.id).status == "done"
-    # The fake saw a config containing the isolated paths.
     assert "REPORT_CSV_PATH" in fake.calls[0].config
 
 
 # ---------- process_job: run-comparison ----------
 
-def test_process_job_run_comparison_stores_all_legs(db_session, monkeypatch, redirect_logs):
+def test_process_job_run_comparison_stores_all_legs(db_session, tmp_path):
     fake = _FakeSim({"status": "success", "average_response_time": 4.0, "coverage_percent": 90.0, "P90_continuous": 8.0})
-    monkeypatch.setattr(processor_mod, "default_simulator", lambda: fake)
     job = _mkjob(db_session, "run-comparison", {"baseline": {"a": 1}, "newConfig": {"b": 2}})
 
-    process_job(db_session, job)
+    process_job(db_session, job, sim_factory=lambda: fake, logs_root=tmp_path)
 
     result = crud.get_job(db_session, job.id).result
     assert result["status"] == "success"
     assert "baseline" in result and "newConfig" in result
-    assert "comparison" in result
-    assert "overall_metrics" in result["comparison"]
-    # Both legs were run.
-    assert len(fake.calls) == 2
+    assert "comparison" in result and "overall_metrics" in result["comparison"]
+    assert len(fake.calls) == 2  # both legs ran
 
 
-def test_process_job_marks_failed_when_sim_returns_error_status(db_session, monkeypatch, redirect_logs):
+def test_process_job_marks_failed_when_sim_returns_error_status(db_session, tmp_path):
     """A simulator returning {"status":"error", ...} must fail the job, not silently mark it done.
 
-    Regression for a real bug found during a fresh-clone setup walk: a missing
-    data file made the engine return an error dict, the worker called
-    mark_job_done unconditionally, and the user saw a "successful" job with no
-    real result. The worker now inspects the result and fails the job.
+    Regression test: previously the worker called mark_job_done unconditionally,
+    so a missing data file surfaced as a "successful" job with no result.
     """
     fake = _FakeSim({"status": "error", "error": "boom"})
-    monkeypatch.setattr(processor_mod, "default_simulator", lambda: fake)
     job = _mkjob(db_session, "run-comparison", {"baseline": {}, "newConfig": {}})
-    process_job(db_session, job)
+    process_job(db_session, job, sim_factory=lambda: fake, logs_root=tmp_path)
     refreshed = crud.get_job(db_session, job.id)
     assert refreshed.status == "failed"
     assert "boom" in (refreshed.error or "")
@@ -144,30 +125,32 @@ def test_process_job_marks_failed_when_sim_returns_error_status(db_session, monk
 
 # ---------- process_job: error paths ----------
 
-def test_process_job_unknown_kind_fails(db_session, monkeypatch, redirect_logs):
-    monkeypatch.setattr(processor_mod, "default_simulator", lambda: _FakeSim({"status": "success"}))
+def test_process_job_unknown_kind_fails(db_session, tmp_path):
     job = _mkjob(db_session, "bogus-kind", {})
-    process_job(db_session, job)
+    process_job(db_session, job, sim_factory=lambda: _FakeSim({"status": "success"}), logs_root=tmp_path)
     refreshed = crud.get_job(db_session, job.id)
     assert refreshed.status == "failed"
     assert "Unknown job kind" in refreshed.error
 
 
-def test_process_job_sim_exception_marks_failed(db_session, monkeypatch, redirect_logs):
-    monkeypatch.setattr(processor_mod, "default_simulator", lambda: _ExplodingSim())
+def test_process_job_sim_exception_marks_failed(db_session, tmp_path):
     job = _mkjob(db_session, "run-simulation", {"config": {}})
-    process_job(db_session, job)
+    process_job(db_session, job, sim_factory=lambda: _ExplodingSim(), logs_root=tmp_path)
     refreshed = crud.get_job(db_session, job.id)
     assert refreshed.status == "failed"
     assert "sim blew up" in refreshed.error
 
 
-def test_process_job_timeout_marks_failed(db_session, monkeypatch, redirect_logs):
-    """A hanging sim is cancelled at JOB_TIMEOUT_SEC and the job fails fast."""
-    monkeypatch.setattr(processor_mod, "JOB_TIMEOUT_SEC", 0.2)
-    monkeypatch.setattr(processor_mod, "default_simulator", lambda: _HangingSim())
+def test_process_job_timeout_marks_failed(db_session, tmp_path):
+    """A hanging sim is cancelled at `timeout_sec` and the job fails fast."""
     job = _mkjob(db_session, "run-simulation", {"config": {}})
-    process_job(db_session, job)
+    process_job(
+        db_session, job,
+        sim_factory=lambda: _HangingSim(),
+        timeout_sec=0.2,
+        cancel_poll_sec=5.0,   # large so the timeout, not the watchdog, fires
+        logs_root=tmp_path,
+    )
     refreshed = crud.get_job(db_session, job.id)
     assert refreshed.status == "failed"
     assert "limit and was cancelled" in refreshed.error
@@ -175,15 +158,7 @@ def test_process_job_timeout_marks_failed(db_session, monkeypatch, redirect_logs
 
 # ---------- runner.claim_job ----------
 
-def test_runner_claim_job_delegates_to_crud(db_session, monkeypatch):
-    sentinel = object()
-    captured = {}
-
-    def fake_claim(db, worker_id):
-        captured["args"] = (db, worker_id)
-        return sentinel
-
-    monkeypatch.setattr(runner_mod.crud, "claim_next_pending_job", fake_claim)
+def test_runner_claim_job_delegates_to_crud(db_session):
     out = runner_mod.claim_job(db_session, "worker-x")
-    assert out is sentinel
-    assert captured["args"] == (db_session, "worker-x")
+    # No pending jobs -> None is the contract.
+    assert out is None

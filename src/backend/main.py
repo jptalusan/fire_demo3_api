@@ -10,7 +10,7 @@ from starlette.responses import Response
 from backend.config import ensure_runtime_dirs, settings
 from backend.routes import auth, incidents, jobs, stations, system
 from db.models import Base
-from db.session import engine as db_engine
+from db.session import engine as db_engine, ensure_schema_migrations
 
 logger = logging.getLogger("fire_demo3_api_v2")
 
@@ -62,3 +62,4 @@ def on_startup() -> None:
     ensure_runtime_dirs()
     logger.info("Creating database tables if missing.")
     Base.metadata.create_all(bind=db_engine)
+    ensure_schema_migrations()  # additive column upgrades for older DBs

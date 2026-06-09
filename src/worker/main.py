@@ -10,7 +10,7 @@ from sqlalchemy import text
 from backend.config import ensure_runtime_dirs
 from db import crud
 from db.models import Base
-from db.session import SessionLocal, engine
+from db.session import SessionLocal, engine, ensure_schema_migrations
 from worker.runner import claim_job
 from worker.processor import JOB_TIMEOUT_SEC, process_job
 
@@ -41,6 +41,7 @@ def run_worker() -> None:
     ensure_runtime_dirs()       # storage/, logs/, data/ are gitignored — create if missing
     wait_for_database()
     Base.metadata.create_all(bind=engine)
+    ensure_schema_migrations()
 
     while True:
         db = SessionLocal()

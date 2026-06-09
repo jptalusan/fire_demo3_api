@@ -115,6 +115,54 @@ def claim_next_pending_job(db: Session, worker_id: str) -> Optional[Job]:
     return candidate
 
 
+# ---------- Cancellation ----------
+#
+# A user can cancel any of their own jobs. Outcomes are explicit (returned as a
+# string token) rather than swallowed — callers (route, worker) must dispatch on
+# the result. No silent no-op fallbacks.
+#
+# Outcomes:
+#   "cancelled_pending"  -> job was pending, status flipped to failed.
+#   "cancel_requested"   -> job was running, flag set; worker watchdog will stop it.
+#   "already_terminal"   -> job already done/failed; nothing to do, no mutation.
+#   "not_found"          -> no such job for this user.
+
+def request_cancel(db: Session, job_id: int, user_id: int) -> str:
+    job = db.query(Job).filter(Job.id == job_id, Job.user_id == user_id).first()
+    if job is None:
+        return "not_found"
+    if job.status in ("done", "failed"):
+        return "already_terminal"
+    if job.status == "pending":
+        # Terminal flip in-place — no worker has touched it.
+        db.query(Job).filter(Job.id == job_id, Job.status == "pending").update(
+            {
+                "status": "failed",
+                "error": "Cancelled by user before it started.",
+                "finished_at": _utcnow(),
+                "cancel_requested": True,
+            },
+            synchronize_session=False,
+        )
+        db.commit()
+        return "cancelled_pending"
+    # running: signal the worker. The watchdog will pick it up and cancel the task.
+    db.query(Job).filter(Job.id == job_id).update(
+        {"cancel_requested": True}, synchronize_session=False
+    )
+    db.commit()
+    return "cancel_requested"
+
+
+def is_cancel_requested(db: Session, job_id: int) -> bool:
+    """Cheap read used by the worker watchdog. Raises if the row vanished —
+    the worker is mid-run on a job; it MUST still exist."""
+    row = db.query(Job.cancel_requested).filter(Job.id == job_id).first()
+    if row is None:
+        raise LookupError(f"job {job_id} disappeared while running")
+    return bool(row[0])
+
+
 def reap_stale_running(db: Session, max_age_seconds: float) -> int:
     """Fail any 'running' job older than max_age_seconds.
 

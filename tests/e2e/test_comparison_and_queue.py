@@ -1,14 +1,12 @@
 """E2E: comparison pipeline + global serialization gate through the full stack.
 
-Uses a fake Simulator (no C++ binary / OSRM). Per-job log dirs are redirected to
-a tmp path so real storage is never touched.
+Uses a fake Simulator injected via `sim_factory=` and a tmp `logs_root` — no
+monkey-patching of module globals.
 """
 
-import core.config as constants
 from backend.services import simulator as sim_mod
 from db import crud
 from db.session import SessionLocal
-from worker import processor as processor_mod
 from worker.processor import process_job
 
 
@@ -20,10 +18,8 @@ class _FakeSim(sim_mod.Simulator):
         return sim_mod.SimulatorRunResult(status=self.raw["status"], raw=self.raw)
 
 
-def test_comparison_job_end_to_end(client, auth_headers, monkeypatch, tmp_path):
-    monkeypatch.setattr(constants, "BASE_DIR", tmp_path)
+def test_comparison_job_end_to_end(client, auth_headers, tmp_path):
     raw = {"status": "success", "average_response_time": 5.0, "coverage_percent": 80.0, "P90_continuous": 9.0}
-    monkeypatch.setattr(processor_mod, "default_simulator", lambda: _FakeSim(raw))
 
     jid = client.post(
         "/api/jobs", headers=auth_headers,
@@ -33,7 +29,7 @@ def test_comparison_job_end_to_end(client, auth_headers, monkeypatch, tmp_path):
     db = SessionLocal()
     try:
         claimed = crud.claim_next_pending_job(db, worker_id="test")
-        process_job(db, claimed)
+        process_job(db, claimed, sim_factory=lambda: _FakeSim(raw), logs_root=tmp_path)
     finally:
         db.close()
 
@@ -43,9 +39,8 @@ def test_comparison_job_end_to_end(client, auth_headers, monkeypatch, tmp_path):
     assert body["duration_seconds"] is not None
 
 
-def test_queue_serialization_through_stack(client, auth_headers, monkeypatch, tmp_path):
-    monkeypatch.setattr(constants, "BASE_DIR", tmp_path)
-    monkeypatch.setattr(processor_mod, "default_simulator", lambda: _FakeSim({"status": "success"}))
+def test_queue_serialization_through_stack(client, auth_headers, tmp_path):
+    sim_factory = lambda: _FakeSim({"status": "success"})
 
     j1 = client.post("/api/jobs", headers=auth_headers, json={"payload": {"n": 1}}).json()["id"]
     j2 = client.post("/api/jobs", headers=auth_headers, json={"payload": {"n": 2}}).json()["id"]
@@ -56,11 +51,11 @@ def test_queue_serialization_through_stack(client, auth_headers, monkeypatch, tm
         assert first.id == j1
         # j1 is running -> j2 must not be claimable yet.
         assert crud.claim_next_pending_job(db, worker_id="w2") is None
-        process_job(db, first)  # finish j1
+        process_job(db, first, sim_factory=sim_factory, logs_root=tmp_path)  # finish j1
         # Now j2 is claimable.
         second = crud.claim_next_pending_job(db, worker_id="w1")
         assert second.id == j2
-        process_job(db, second)
+        process_job(db, second, sim_factory=sim_factory, logs_root=tmp_path)
     finally:
         db.close()
 
