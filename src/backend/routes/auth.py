@@ -1,10 +1,12 @@
-"""Authentication endpoints: register, login."""
+"""Authentication endpoints: register, login, portal-login."""
+
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from backend.config import settings
-from backend.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
+from backend.schemas.auth import LoginRequest, PortalLoginRequest, RegisterRequest, TokenResponse
 from backend.services.auth import (
     ACCESS_TOKEN_TTL_HOURS,
     create_token,
@@ -37,6 +39,47 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
     token = create_token(user.id)
     # Cookie attributes come from settings so a cross-domain deploy can flip them
     # without touching code. Cross-site needs samesite="none" + secure=True (HTTPS).
+    response.set_cookie(
+        key="auth_token",
+        value=token,
+        httponly=True,
+        max_age=ACCESS_TOKEN_TTL_HOURS * 60 * 60,
+        samesite=settings.COOKIE_SAMESITE,
+        secure=settings.COOKIE_SECURE,
+    )
+    return TokenResponse(access_token=token)
+
+
+@router.post("/portal-login", response_model=TokenResponse)
+def portal_login(
+    body: PortalLoginRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    """Issue a session for `username` without a password.
+
+    Intended for deployments where an upstream portal has already authenticated
+    the caller and the backend trusts that portal (network ACL, mTLS, or signed
+    header upstream). The endpoint is **disabled by default** — set
+    `PORTAL_AUTH_ENABLED=true` in the backend env to turn it on. When disabled
+    it returns 404 (no info leak).
+
+    First call for a username auto-creates the user. A high-entropy random
+    password hash is stored so the regular `/auth/login` route cannot be used
+    to log in as a portal-created user with any guessable password.
+    """
+    if not settings.PORTAL_AUTH_ENABLED:
+        # Explicit 404 rather than 403/501: indistinguishable from "route doesn't
+        # exist" so a probe can't tell the feature is gated behind a flag.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+    user = crud.get_user(db, body.username)
+    if user is None:
+        # Random 32-byte secret -> bcrypt hash. Not stored anywhere, not derivable.
+        random_pw = secrets.token_urlsafe(32)
+        user = crud.create_user(db, body.username, hash_password(random_pw))
+
+    token = create_token(user.id)
     response.set_cookie(
         key="auth_token",
         value=token,

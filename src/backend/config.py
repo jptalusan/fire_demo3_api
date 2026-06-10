@@ -17,6 +17,12 @@ class Settings:
     OSRM_HOST: str
     OSRM_PORT: int
     SIMULATOR_BINARY: str
+    # When True, POST /auth/portal-login accepts a bare username and issues a
+    # session for it (creating the user on first use). For deployments where an
+    # upstream portal has already authenticated the caller and the backend
+    # trusts that portal. Off by default — anyone who can hit the endpoint
+    # otherwise can log in as anyone.
+    PORTAL_AUTH_ENABLED: bool
     CORS_ALLOWED_ORIGINS: list[str]
     COOKIE_SAMESITE: str   # "lax" (same-site) or "none" (cross-site; requires Secure)
     COOKIE_SECURE: bool    # True for HTTPS-only cookies (required when SameSite=None)
@@ -54,6 +60,7 @@ settings.STORAGE_ROOT = os.getenv("STORAGE_ROOT", str(REPO_ROOT / "storage"))
 settings.OSRM_HOST = os.getenv("OSRM_HOST", "localhost")
 settings.OSRM_PORT = int(os.getenv("OSRM_PORT", "8080"))
 settings.SIMULATOR_BINARY = os.getenv("SIMULATOR_BINARY", str(REPO_ROOT / "data" / "fire_simulator"))
+settings.PORTAL_AUTH_ENABLED = os.getenv("PORTAL_AUTH_ENABLED", "false").lower() in ("1", "true", "yes")
 settings.CORS_ALLOWED_ORIGINS = _parse_origins(os.getenv("CORS_ALLOWED_ORIGINS"))
 settings.COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax").lower()
 settings.COOKIE_SECURE = _truthy(
