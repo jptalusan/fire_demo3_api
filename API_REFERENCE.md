@@ -54,7 +54,7 @@ GET /api/jobs/{id}           -> full job; `result` populated when status="done"
 | GET | `/version` | no | Name + version |
 | POST | `/auth/register` | no | Create account |
 | POST | `/auth/login` | no | Log in (sets cookie) |
-| POST | `/auth/portal-login` | no | Username-only login (gated by `PORTAL_AUTH_ENABLED`) |
+| POST | `/auth/portal-login` | no | Username-only login (on by default; `PORTAL_AUTH_ENABLED=false` disables) |
 | GET | `/auth/me` | yes | Current user / session check |
 | POST | `/auth/logout` | yes | Clear cookie |
 | POST | `/api/jobs` | yes | **Submit a simulation job** |
@@ -104,9 +104,9 @@ Response `200 { "status": "ok" }`, clears the cookie.
 
 ### POST /auth/portal-login
 Username-only login for callers behind a trusted upstream portal that has
-already authenticated the user. **Disabled by default** — returns `404` unless
-the backend is started with `PORTAL_AUTH_ENABLED=true` in its env (404, not 403,
-so a probe cannot detect that the feature exists but is gated).
+already authenticated the user. **Enabled by default.** Set
+`PORTAL_AUTH_ENABLED=false` in the backend env to lock it down (then it returns
+`404` with no info leak — indistinguishable from a missing route).
 
 Request:
 ```json

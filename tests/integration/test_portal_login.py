@@ -16,25 +16,40 @@ from db.models import User
 from db.session import SessionLocal
 
 
+def _set_flag(value: bool):
+    """Toggle the runtime feature flag (data, not a method) and yield a
+    teardown callable that restores the previous value."""
+    prev = settings.PORTAL_AUTH_ENABLED
+    settings.PORTAL_AUTH_ENABLED = value
+
+    def restore():
+        settings.PORTAL_AUTH_ENABLED = prev
+
+    return restore
+
+
 @pytest.fixture
 def portal_enabled():
-    """Flip the runtime feature flag for one test and restore it.
-
-    This mutates a config value (data), not a method — same channel a real
-    deployment uses via the PORTAL_AUTH_ENABLED env var.
-    """
-    prev = settings.PORTAL_AUTH_ENABLED
-    settings.PORTAL_AUTH_ENABLED = True
+    restore = _set_flag(True)
     try:
         yield
     finally:
-        settings.PORTAL_AUTH_ENABLED = prev
+        restore()
 
 
-# ---------- disabled by default ----------
+@pytest.fixture
+def portal_disabled():
+    restore = _set_flag(False)
+    try:
+        yield
+    finally:
+        restore()
 
-def test_portal_login_returns_404_when_flag_off(client):
-    # Sanity: the feature must be off by default.
+
+# ---------- disabled state: returns 404, no side effects ----------
+
+def test_portal_login_returns_404_when_flag_off(client, portal_disabled):
+    """With PORTAL_AUTH_ENABLED=false the route returns 404 and creates nothing."""
     assert settings.PORTAL_AUTH_ENABLED is False
     r = client.post("/auth/portal-login", json={"username": "wouldbeuser"})
     assert r.status_code == 404
@@ -44,6 +59,13 @@ def test_portal_login_returns_404_when_flag_off(client):
         assert crud.get_user(db, "wouldbeuser") is None
     finally:
         db.close()
+
+
+def test_portal_login_enabled_by_default(client):
+    """The shipped default has the flag ON; the route accepts a username."""
+    assert settings.PORTAL_AUTH_ENABLED is True
+    r = client.post("/auth/portal-login", json={"username": "default_on_user"})
+    assert r.status_code == 200, r.text
 
 
 # ---------- enabled: happy paths ----------

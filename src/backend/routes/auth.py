@@ -60,9 +60,9 @@ def portal_login(
 
     Intended for deployments where an upstream portal has already authenticated
     the caller and the backend trusts that portal (network ACL, mTLS, or signed
-    header upstream). The endpoint is **disabled by default** — set
-    `PORTAL_AUTH_ENABLED=true` in the backend env to turn it on. When disabled
-    it returns 404 (no info leak).
+    header upstream). **Enabled by default.** Set `PORTAL_AUTH_ENABLED=false`
+    in the backend env to lock the endpoint down (it then returns 404 with no
+    info leak).
 
     First call for a username auto-creates the user. A high-entropy random
     password hash is stored so the regular `/auth/login` route cannot be used
