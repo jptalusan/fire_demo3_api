@@ -54,18 +54,21 @@ GET /api/jobs/{id}           -> full job; `result` populated when status="done"
 | GET | `/version` | no | Name + version |
 | POST | `/auth/register` | no | Create account |
 | POST | `/auth/login` | no | Log in (sets cookie) |
+| POST | `/auth/portal-login` | no | Username-only login (gated by `PORTAL_AUTH_ENABLED`) |
 | GET | `/auth/me` | yes | Current user / session check |
 | POST | `/auth/logout` | yes | Clear cookie |
 | POST | `/api/jobs` | yes | **Submit a simulation job** |
-| GET | `/api/jobs` | yes | List your jobs |
+| GET | `/api/jobs` | yes | List your jobs (`?compact=true` to omit payload/result) |
 | GET | `/api/jobs/{id}` | yes | One job (+ result) |
+| POST | `/api/jobs/{id}/cancel` | yes | Cancel a pending or running job |
 | GET | `/api/jobs/{id}/progress` | yes | Live progress |
 | GET | `/api/jobs/queue/status` | yes | Queue snapshot |
 | POST | `/api/incidents/get-incidents` | yes | Historical incidents (CSV) |
 | POST | `/api/incidents/generate-incidents` | yes | Synthetic incidents (CSV) |
 | POST | `/api/incidents/process-incidents` | yes | Stats for a CSV |
-| GET | `/api/stations/get-stations` | yes | List station CSVs |
-| GET | `/api/stations/get-shapes` | yes | List GeoJSON overlays |
+| GET | `/api/stations/get-stations` | yes | List station CSV filenames |
+| GET | `/api/stations/get-shapes` | yes | List GeoJSON filenames |
+| GET | `/api/stations/roster` | yes | Parsed contents of a station CSV (JSON) |
 
 ---
 
@@ -98,6 +101,25 @@ Use on app load to decide login-gate vs app.
 
 ### POST /auth/logout
 Response `200 { "status": "ok" }`, clears the cookie.
+
+### POST /auth/portal-login
+Username-only login for callers behind a trusted upstream portal that has
+already authenticated the user. **Disabled by default** — returns `404` unless
+the backend is started with `PORTAL_AUTH_ENABLED=true` in its env (404, not 403,
+so a probe cannot detect that the feature exists but is gated).
+
+Request:
+```json
+{ "username": "alice" }
+```
+| Parameter | Type | Required | Accepts |
+|---|---|---|---|
+| `username` | string | **yes** | 3–64 characters |
+
+When enabled: returns `200 { "access_token", "token_type": "bearer" }` and sets
+the `auth_token` cookie. First call for a username auto-creates the user with a
+high-entropy random password hash so the regular `/auth/login` route cannot be
+used to log in as that user with any guessable password.
 
 ---
 
@@ -235,9 +257,30 @@ Apparatus `type` ∈ `Engine, Truck, Rescue, Hazard, Squad, FAST, Medic, Brush, 
 ### GET /api/jobs
 List your jobs (newest first). Array of `JobResponse`. Pending jobs include `queue_position`.
 
+| Query param | Type | Default | Accepts |
+|---|---|---|---|
+| `compact` | bool | `false` | when `true`, every row's `payload` and `result` are set to `null` (status, timestamps, duration, queue_position remain). Useful for history lists where you don't want to ship tens of KB per row. |
+
 ### GET /api/jobs/{id}
 One `JobResponse`. `result` is the full simulation output once `status="done"`. `404` if
 the job doesn't exist or isn't yours.
+
+### POST /api/jobs/{id}/cancel
+Cancel a pending or running job owned by the caller. Returns `202` with:
+```jsonc
+{
+  "result": "cancelled_pending" | "cancel_requested" | "already_terminal",
+  "job":    { /* current JobResponse */ }
+}
+```
+
+| Outcome | When | Effect |
+|---|---|---|
+| `cancelled_pending` | job was `pending` | Flips immediately to `failed`, `error="Cancelled by user before it started."` |
+| `cancel_requested` | job was `running` | Sets a flag; the worker's watchdog (polls every ~2 s) cancels the simulator and marks the job `failed` with `error="Cancelled by user."` |
+| `already_terminal` | job was `done`/`failed` | No-op (no mutation; status unchanged) |
+
+`404` if the job doesn't exist or isn't yours (indistinguishable to avoid info leak).
 
 ### GET /api/jobs/{id}/progress
 ```jsonc
@@ -362,7 +405,7 @@ Counts incidents *reported* (fills early); `status` is the source of truth for c
 | `filters.incident_type` | string | **yes** | `fire`, `ems_fire` |
 
 **Response**: `text/csv` — columns `incident_id,lat,lon,incident_type,incident_level,datetime,category`.
-`400` if range missing / unsupported model.
+Validation errors (bad `model_id`, missing date range, bad `incident_type`) return **`422`** with a Pydantic-style detail array; downstream errors from the engine return `400`.
 
 ### POST /api/incidents/generate-incidents — synthetic (CSV out)
 ```jsonc
@@ -374,7 +417,7 @@ Counts incidents *reported* (fills early); `status` is the source of truth for c
 | `date_range.start` | string | **yes** | — | `YYYY-MM-DD` |
 | `date_range.end` | string | **yes** | — | `YYYY-MM-DD` |
 | `incident_type` | string | **yes** | — | `fire`, `ems_fire` |
-| `model` | string | no | `growth_v1` | `growth_v1`, `default` |
+| `model` | string | no | `growth_v1` | `growth_v1`, `legacy` |
 | `seed` | integer | no | `42` | any integer (fixes the random draw) |
 
 **Response**: `text/csv`, same columns. Cached per (model, dates, seed).
@@ -393,6 +436,10 @@ Counts incidents *reported* (fills early); `status` is the source of truth for c
   "average_time_between_incidents_minutes": 5.34 }
 ```
 
+Errors: a whitespace-only body returns `400 { "detail": "No CSV data provided" }`;
+a completely missing body returns `422` (FastAPI's body-required validation
+fires before the handler).
+
 ---
 
 ## 7. Stations / shapes
@@ -402,6 +449,37 @@ Counts incidents *reported* (fills early); `status` is the source of truth for c
 
 ### GET /api/stations/get-shapes
 `{ "shapes": ["beats_shpfile.geojson", "bounds.geojson", ...] }`
+
+### GET /api/stations/roster
+Return the contents of a station CSV as JSON, in the same shape `POST /api/jobs`
+accepts under `payload.stations` — so a frontend can round-trip a roster into a
+custom-stations job.
+
+| Query param | Type | Default | Accepts |
+|---|---|---|---|
+| `file` | string | `stations_with_apparatus.csv` | A `stations*.csv` filename in the data directory. No path traversal (slashes rejected, must end in `.csv`, must start with `stations`). |
+
+**Response**:
+```jsonc
+{
+  "file": "stations_with_apparatus.csv",
+  "count": 40,
+  "stations": [
+    { "id": "0", "name": "Station 01", "address": "...",
+      "lat": 36.2293898, "lon": -86.75674762,
+      "apparatus": [
+        { "type": "Engine", "count": 1 },
+        { "type": "Rescue", "count": 1 },
+        { "type": "Medic",  "count": 1 }
+      ] }
+    // ...
+  ]
+}
+```
+- The CSV's `Engine_ID` column is exposed as `type: "Engine"` to match the simulator's apparatus type names. Apparatus rows with count 0 or blank are dropped.
+- `404` if the file is not found in the data directory.
+- `400` on path traversal / disallowed filenames.
+- `500` if a coord or apparatus-count cell is non-numeric (surfaced rather than silently dropped).
 
 ---
 
@@ -416,10 +494,11 @@ Counts incidents *reported* (fills early); `status` is the source of truth for c
 | Code | When | Body |
 |---|---|---|
 | 401 | missing/expired session | `{ "detail": "Missing authorization header or auth cookie" }` / `"Invalid token"` |
-| 404 | job not found / not yours | `{ "detail": "Job not found" }` |
+| 404 | job not found / not yours, or roster file missing, or portal-login disabled | `{ "detail": "Job not found" }` / `"Not Found"` |
 | 409 | username exists | `{ "detail": "User already exists" }` |
-| 422 | request validation | `{ "detail": [ { "loc": [...], "msg": "...", "type": "..." } ] }` |
-| 400 | bad incidents request | `{ "detail": "..." }` |
+| 422 | request validation (incl. bad enum, missing field, missing body, short username/password) | `{ "detail": [ { "loc": [...], "msg": "...", "type": "..." } ] }` |
+| 400 | path traversal on `/api/stations/roster`, empty-but-present `process-incidents` CSV | `{ "detail": "..." }` |
+| 500 | malformed cells in a roster CSV (non-numeric coord/count) | `{ "detail": "..." }` |
 
 A **failed job** is not an HTTP error — it's `200` with `status: "failed"` and an `error`
 string (e.g. timeout / unresolvable-config message).
