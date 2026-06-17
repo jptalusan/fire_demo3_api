@@ -1,10 +1,12 @@
 """Integration tests for /api/incidents.
 
-Engine functions are monkeypatched so the real simulator / data files / network
-are never touched.
+No engine functions are mocked or monkeypatched. The historical-incidents tests
+run the REAL get_or_create_historical_incidents against real source CSVs written
+into a temp data directory (DATA_DIR is redirected to tmp_path — config isolation
+only, not a faked mechanism). The generate-incidents endpoint is covered
+end-to-end (real engine + real data) by tests/test_incidents_route.py.
 """
 
-import pandas as pd
 import pytest
 
 from backend.routes import incidents as inc_mod
@@ -32,9 +34,10 @@ def test_get_incidents_rejects_non_historical_model(client, auth_headers):
     assert bad.status_code == 422
 
 
-def test_get_incidents_missing_dates_400(client, auth_headers, monkeypatch):
-    # Empty start/end should 400 before touching the engine.
-    monkeypatch.setattr(inc_mod, "get_or_create_historical_incidents", lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not be called")))
+def test_get_incidents_missing_dates_400(client, auth_headers):
+    # Empty start/end should 400. The route validates dates BEFORE calling the
+    # engine (see get_incidents handler), so no fake/guard is needed — the real
+    # short-circuit is what we exercise.
     r = client.post(
         "/api/incidents/get-incidents",
         headers=auth_headers,
@@ -47,9 +50,16 @@ def test_get_incidents_missing_dates_400(client, auth_headers, monkeypatch):
 
 
 def test_get_incidents_returns_csv(client, auth_headers, monkeypatch, tmp_path):
-    csv_file = tmp_path / "hist.csv"
-    csv_file.write_text("incident_id,incident_type\n1,fire\n")
-    monkeypatch.setattr(inc_mod, "get_or_create_historical_incidents", lambda *a, **k: str(csv_file))
+    # Real loader: write a real source file and let get_or_create_historical_incidents
+    # filter it. DATA_DIR is redirected to tmp_path (config isolation only).
+    source = tmp_path / "incidents_export_apparatus_fire.csv"
+    source.write_text(
+        "incident_id,incident_type,datetime\n"
+        "1,fire,2024-06-01 12:00:00\n"
+        "2,fire,2024-06-01 18:30:00\n"
+    )
+    monkeypatch.setattr(inc_mod, "DATA_DIR", tmp_path)
+
     r = client.post(
         "/api/incidents/get-incidents",
         headers=auth_headers,
@@ -60,13 +70,22 @@ def test_get_incidents_returns_csv(client, auth_headers, monkeypatch, tmp_path):
     )
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
+    # Both in-range rows survive the real date filter.
     assert "incident_id" in r.text
+    assert "2024-06-01" in r.text
+    assert r.text.count("\n") >= 3  # header + 2 rows (+ trailing)
 
 
-def test_get_incidents_engine_value_error_400(client, auth_headers, monkeypatch):
-    def boom(*a, **k):
-        raise ValueError("no incidents in range")
-    monkeypatch.setattr(inc_mod, "get_or_create_historical_incidents", boom)
+def test_get_incidents_engine_value_error_400(client, auth_headers, monkeypatch, tmp_path):
+    # Real loader raises ValueError when no incidents fall in the range. Source
+    # rows are all OUTSIDE the queried window, so the real filter yields empty.
+    source = tmp_path / "incidents_export_apparatus_fire.csv"
+    source.write_text(
+        "incident_id,incident_type,datetime\n"
+        "1,fire,2020-01-01 12:00:00\n"
+    )
+    monkeypatch.setattr(inc_mod, "DATA_DIR", tmp_path)
+
     r = client.post(
         "/api/incidents/get-incidents",
         headers=auth_headers,
@@ -76,7 +95,7 @@ def test_get_incidents_engine_value_error_400(client, auth_headers, monkeypatch)
         }},
     )
     assert r.status_code == 400
-    assert "no incidents" in r.json()["detail"]
+    assert "No incidents found" in r.json()["detail"]
 
 
 # ---------- process-incidents ----------
@@ -108,53 +127,10 @@ def test_process_incidents_empty_400(client, auth_headers):
 
 
 # ---------- generate-incidents ----------
-
-def test_generate_incidents_maps_params_and_returns_csv(client, auth_headers, monkeypatch, tmp_path):
-    captured = {}
-
-    def fake_growth(start_date, end_date, seed=42, incident_type="fire"):
-        captured["start"] = start_date
-        captured["end"] = end_date
-        captured["seed"] = seed
-        captured["incident_type"] = incident_type
-        return pd.DataFrame([
-            {"incident_id": 1, "lat": 36.1, "lon": -86.7, "incident_type": "fire",
-             "datetime": "2024-06-01T00:00:00", "category": "structure"},
-        ])
-
-    # Redirect cache dir into tmp so nothing writes to real data dir.
-    monkeypatch.setattr(inc_mod, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(inc_mod, "predict_incidents_growth_v1", fake_growth)
-
-    r = client.post(
-        "/api/incidents/generate-incidents",
-        headers=auth_headers,
-        json={"date_range": {"start": "2024-06-01", "end": "2024-06-02"},
-              "incident_type": "fire", "model": "growth_v1", "seed": 7},
-    )
-    assert r.status_code == 200
-    assert r.headers["content-type"].startswith("text/csv")
-    assert "incident_id,lat,lon" in r.text
-    assert captured["seed"] == 7
-    assert captured["incident_type"] == "fire"
-
-
-def test_generate_incidents_legacy_model(client, auth_headers, monkeypatch, tmp_path):
-    def fake_legacy(start_date, end_date, incident_type="fire"):
-        return pd.DataFrame([
-            {"incident_id": 9, "lat": 1.0, "lon": 2.0, "incident_type": "fire",
-             "incident_level": "Low", "datetime": "2024-06-01T00:00:00", "category": "x"},
-        ])
-    monkeypatch.setattr(inc_mod, "DATA_DIR", tmp_path)
-    monkeypatch.setattr(inc_mod, "predict_incidents_with_types_and_coordinates", fake_legacy)
-    r = client.post(
-        "/api/incidents/generate-incidents",
-        headers=auth_headers,
-        json={"date_range": {"start": "2024-06-01", "end": "2024-06-02"},
-              "incident_type": "fire", "model": "legacy", "seed": 1},
-    )
-    assert r.status_code == 200
-    assert "9," in r.text
+# Covered end-to-end (real engine + real data, no mocking) by
+# tests/test_incidents_route.py: default==growth_v1, explicit growth_v1/legacy,
+# incident_type filtering, caching/determinism, and CSV quoting. The previous
+# monkeypatched stubs here (which replaced the real generators) were removed.
 
 
 # ---------- auth required ----------
