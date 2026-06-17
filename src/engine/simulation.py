@@ -165,8 +165,22 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
                 query_path = data_dir / "incidents" / "synthetic" / "query" / query_filename
                 if not query_path.exists():
                     query_path.parent.mkdir(parents=True, exist_ok=True)
-                    from engine.incidents import predict_incidents_with_types_and_coordinates
-                    predicted_incidents_df = predict_incidents_with_types_and_coordinates(start_date, end_date, incident_type=incident_type)
+                    # Default synthetic generator is growth_v1 (the Poisson rate
+                    # model), matching the /generate-incidents endpoint default.
+                    # growth_v1 samples a proper Poisson process, so low-rate
+                    # (outskirt) cells are covered instead of being left empty by
+                    # the legacy survival model's deterministic mean inter-arrival.
+                    import numpy as np
+                    from engine.incidents_variants import predict_incidents as predict_incidents_growth_v1
+                    seed = int(config.get('seed', 42))
+                    predicted_incidents_df = predict_incidents_growth_v1(
+                        start_date, end_date, seed=seed, incident_type=incident_type)
+                    # growth_v1 has no incident_level; assign one to match the CSV schema.
+                    if not predicted_incidents_df.empty:
+                        rng = np.random.default_rng(seed)
+                        predicted_incidents_df = predicted_incidents_df.copy()
+                        predicted_incidents_df["incident_level"] = rng.choice(
+                            ["Low", "Moderate", "High"], size=len(predicted_incidents_df), p=[0.4, 0.4, 0.2])
                 
                     # Convert DataFrame to list of dictionaries for CSV generation
                     incidents = predicted_incidents_df.to_dict('records') if not predicted_incidents_df.empty else []
