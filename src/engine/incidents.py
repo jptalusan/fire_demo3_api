@@ -128,8 +128,12 @@ def predict_incidents_with_types_and_coordinates(start_date, end_date, incident_
             # Ensure all features are present and in correct order
             temp_df_encoded = temp_df_encoded.reindex(columns=['cell_id', 'cluster_label'] + features, fill_value=0)
             
-            # Predict time until next incident
-            temp_df_encoded = model.predict(temp_df_encoded, {'features': features})
+            # Sample time until next incident from the exponential inter-arrival
+            # distribution (a proper Poisson process), instead of using the
+            # deterministic mean E[T]. Using the mean made low-rate cells whose
+            # mean inter-arrival exceeds the window deterministically emit zero
+            # incidents, leaving the outskirts completely empty over normal windows.
+            temp_df_encoded = model.sample(temp_df_encoded, {'features': features})
             predicted_time_bet = temp_df_encoded['predicted_time_bet'].iloc[0]
             
             # Add the predicted time to current time to get next incident time
