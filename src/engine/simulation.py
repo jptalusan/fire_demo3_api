@@ -184,15 +184,19 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
                 
                     # Convert DataFrame to list of dictionaries for CSV generation
                     incidents = predicted_incidents_df.to_dict('records') if not predicted_incidents_df.empty else []
-                    
-                    # Convert to CSV format
-                    csv_header = "incident_id,lat,lon,incident_type,incident_level,datetime,category\n"
-                    csv_rows = []
+
+                    # Write RFC-4180 CSV via csv.writer so incident_type values that
+                    # contain commas (e.g. "Public service assistance, other") are
+                    # quoted rather than spilling into extra columns. Unquoted rows
+                    # would be misparsed by the simulator (wrong level/datetime/category).
+                    import csv, io
+                    csv_cols = ["incident_id", "lat", "lon", "incident_type", "incident_level", "datetime", "category"]
+                    buf = io.StringIO()
+                    writer = csv.writer(buf, lineterminator="\n")
+                    writer.writerow(csv_cols)
                     for incident in incidents:
-                        row = f"{incident['incident_id']},{incident['lat']},{incident['lon']},{incident['incident_type']},{incident['incident_level']},{incident['datetime']},{incident['category']}"
-                        csv_rows.append(row)
-                    
-                    csv_content = csv_header + "\n".join(csv_rows)
+                        writer.writerow([incident[c] for c in csv_cols])
+                    csv_content = buf.getvalue()
                     
                     # Save the synthetic query for future use
                     with open(query_path, 'w') as f:

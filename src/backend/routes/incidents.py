@@ -1,5 +1,6 @@
 """Incidents endpoints: query historical, process uploaded, generate synthetic."""
 
+import csv
 import hashlib
 import io
 from pathlib import Path
@@ -102,11 +103,15 @@ async def generate_incidents(
         predicted = predict_incidents_with_types_and_coordinates(start_date, end_date, incident_type=incident_type)
 
     incidents = predicted.to_dict("records") if not predicted.empty else []
-    header = "incident_id,lat,lon,incident_type,incident_level,datetime,category\n"
-    rows = [
-        f"{i['incident_id']},{i['lat']},{i['lon']},{i['incident_type']},{i['incident_level']},{i['datetime']},{i['category']}"
-        for i in incidents
-    ]
-    csv_content = header + "\n".join(rows)
+    # Write RFC-4180 CSV via csv.writer so incident_type values that contain
+    # commas (e.g. "Public service assistance, other") are quoted rather than
+    # spilling into extra columns and corrupting the row.
+    cols = ["incident_id", "lat", "lon", "incident_type", "incident_level", "datetime", "category"]
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(cols)
+    for i in incidents:
+        writer.writerow([i[c] for c in cols])
+    csv_content = buf.getvalue()
     query_path.write_text(csv_content)
     return Response(content=csv_content, media_type="text/csv")
