@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 RUN pip install --upgrade pip setuptools wheel && pip install uv
 
 COPY src ./src
