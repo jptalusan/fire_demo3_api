@@ -4,11 +4,16 @@ import dotenv
 
 dotenv.load_dotenv()
 
-# Define the project root directory
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+# Define the project root directory. When the package is installed (e.g. via
+# `uv pip install --system .` in Docker), __file__ resolves under site-packages
+# and the parent chain points outside the project. Allow BASE_DIR to be set
+# explicitly via env var to override that, and derive LOGS_DIR / DATA_DIR /
+# SRC_DIR from it (each still independently overridable).
+BASE_DIR = Path(os.getenv("BASE_DIR", str(Path(__file__).resolve().parent.parent.parent)))
 
-# Define paths for data and source directories
+# Define paths for data, logs, and source directories
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
+LOGS_DIR = Path(os.getenv("LOGS_DIR", BASE_DIR / "logs"))
 SRC_DIR = Path(os.getenv("SRC_DIR", BASE_DIR / "src"))
 # POSTGRES_PASSWORD = os.environ["POSTGRES_PASSWORD"]  #  os.environ raises an exception if the environmental variable does not exist
 

@@ -11,6 +11,7 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
     environment:
+      BASE_DIR: /app
       DATA_DIR: /app/data
       LOGS_DIR: /app/logs
       DATABASE_URL: sqlite:////data/storage/app.db
@@ -33,6 +34,7 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
     environment:
+      BASE_DIR: /app
       DATA_DIR: /app/data
       LOGS_DIR: /app/logs
       DATABASE_URL: sqlite:////data/storage/app.db
