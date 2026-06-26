@@ -10,6 +10,11 @@ services:
       - ./storage:/data/storage
       - ./data:/app/data
       - ./logs:/app/logs
+      # Bind-mount a host-side onnxruntime install so the simulator binary can
+      # link against whatever version it was built with (the Dockerfile only
+      # bundles 1.16.3). Override HOST_ONNXRUNTIME_DIR in .env to your local
+      # path, e.g. /home/<user>/fire_simulator/external/onnxruntime/usr/local/lib64
+      - ${HOST_ONNXRUNTIME_DIR:-./data/onnxruntime}:/opt/onnxruntime:ro
     environment:
       BASE_DIR: /app
       DATA_DIR: /app/data
@@ -21,6 +26,9 @@ services:
       # osrm-routed container when the host already runs one.
       OSRM_HOST: ${OSRM_HOST:-host.docker.internal}
       OSRM_PORT: ${OSRM_PORT:-8085}
+      # Loader searches /opt/onnxruntime first (host bind-mount above), then
+      # the version baked into the image at /usr/local/lib as fallback.
+      LD_LIBRARY_PATH: /opt/onnxruntime:/usr/local/lib
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command: uvicorn backend.main:app --host 0.0.0.0 --port 8000
@@ -35,6 +43,11 @@ services:
       - ./storage:/data/storage
       - ./data:/app/data
       - ./logs:/app/logs
+      # Bind-mount a host-side onnxruntime install so the simulator binary can
+      # link against whatever version it was built with (the Dockerfile only
+      # bundles 1.16.3). Override HOST_ONNXRUNTIME_DIR in .env to your local
+      # path, e.g. /home/<user>/fire_simulator/external/onnxruntime/usr/local/lib64
+      - ${HOST_ONNXRUNTIME_DIR:-./data/onnxruntime}:/opt/onnxruntime:ro
     environment:
       BASE_DIR: /app
       DATA_DIR: /app/data
@@ -43,6 +56,9 @@ services:
       STORAGE_ROOT: /data/storage
       OSRM_HOST: ${OSRM_HOST:-host.docker.internal}
       OSRM_PORT: ${OSRM_PORT:-8085}
+      # Loader searches /opt/onnxruntime first (host bind-mount above), then
+      # the version baked into the image at /usr/local/lib as fallback.
+      LD_LIBRARY_PATH: /opt/onnxruntime:/usr/local/lib
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
