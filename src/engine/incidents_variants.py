@@ -80,6 +80,36 @@ def remap_categories(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def sanitize_incident_types(df: pd.DataFrame) -> pd.DataFrame:
+    """Replace ', ' with ' -  ' inside incident_type values.
+
+    Two problems solved at once:
+
+    1. The C++ simulator's CSV parser splits on bare commas instead of doing
+       RFC-4180 quoted-field parsing, so any incident_type containing a comma
+       (e.g. 'Outside rubbish fire, other') shifts every following column and
+       crashes the loader with 'Failed to parse datetime: <next-field>'.
+
+    2. The historical incidents_export_apparatus.csv already underwent this
+       transformation upstream — its types use ' -  ' (space-dash-two-spaces)
+       where the source had a comma (e.g. 'Outside rubbish fire -  other').
+       Matching that convention means the remap_categories lookup actually
+       finds these rows instead of falling back to placeholder categories.
+
+    Run BEFORE remap_categories so the lookup keys line up. Historical types
+    contain no commas, so this is a no-op on them."""
+    if df is None or df.empty or "incident_type" not in df.columns:
+        return df
+    df = df.copy()
+    df["incident_type"] = (
+        df["incident_type"]
+        .astype(str)
+        .str.replace(", ", " -  ", regex=False)
+        .str.replace(",", " - ", regex=False)
+    )
+    return df
+
+
 def _bundle_path(name: str) -> Path:
     """Resolve an artifact filename inside the bundle."""
     return BUNDLE_DIR / name

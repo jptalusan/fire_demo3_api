@@ -21,6 +21,7 @@ from engine.incidents import predict_incidents_with_types_and_coordinates
 from engine.incidents_variants import (
     predict_incidents as predict_incidents_growth_v1,
     remap_categories,
+    sanitize_incident_types,
 )
 from engine.simulation import get_or_create_historical_incidents
 
@@ -105,8 +106,11 @@ async def generate_incidents(
     else:
         predicted = predict_incidents_with_types_and_coordinates(start_date, end_date, incident_type=incident_type)
 
-    # Replace placeholder categories ('Major', 'Unknown') with the canonical
-    # NFDResponse Enum so the C++ simulator's dispatch table lookup matches.
+    # Sanitize incident_type FIRST so the keys line up with the historical
+    # convention (' -  ' in place of comma); then remap categories using that
+    # aligned key, replacing the generator's placeholder 'Major' / 'Unknown'
+    # with the real NFDResponse Enum (e.g. 'Nine', 'ThreeF').
+    predicted = sanitize_incident_types(predicted)
     predicted = remap_categories(predicted)
 
     # The C++ simulator's datetime parser only accepts 'YYYY-MM-DD HH:MM:SS'.
