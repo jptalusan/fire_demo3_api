@@ -102,6 +102,14 @@ async def generate_incidents(
     else:
         predicted = predict_incidents_with_types_and_coordinates(start_date, end_date, incident_type=incident_type)
 
+    # The C++ simulator's datetime parser only accepts 'YYYY-MM-DD HH:MM:SS'.
+    # Strip any fractional seconds before serialising; nanosecond timestamps
+    # like '2027-01-01 00:03:47.463952217' otherwise fall through the parser
+    # and the row mis-aligns from there.
+    if not predicted.empty and "datetime" in predicted.columns:
+        predicted = predicted.copy()
+        predicted["datetime"] = pd.to_datetime(predicted["datetime"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+
     incidents = predicted.to_dict("records") if not predicted.empty else []
     # Write RFC-4180 CSV via csv.writer so incident_type values that contain
     # commas (e.g. "Public service assistance, other") are quoted rather than

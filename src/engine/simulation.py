@@ -176,11 +176,17 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
                     predicted_incidents_df = predict_incidents_growth_v1(
                         start_date, end_date, seed=seed, incident_type=incident_type)
                     # growth_v1 has no incident_level; assign one to match the CSV schema.
+                    # Also format datetimes as 'YYYY-MM-DD HH:MM:SS' (no fractional seconds);
+                    # the C++ simulator's datetime parser rejects anything longer and falls
+                    # off the row, mis-reading the next field as the datetime.
                     if not predicted_incidents_df.empty:
                         rng = np.random.default_rng(seed)
                         predicted_incidents_df = predicted_incidents_df.copy()
                         predicted_incidents_df["incident_level"] = rng.choice(
                             ["Low", "Moderate", "High"], size=len(predicted_incidents_df), p=[0.4, 0.4, 0.2])
+                        predicted_incidents_df["datetime"] = pd.to_datetime(
+                            predicted_incidents_df["datetime"]
+                        ).dt.strftime("%Y-%m-%d %H:%M:%S")
                 
                     # Convert DataFrame to list of dictionaries for CSV generation
                     incidents = predicted_incidents_df.to_dict('records') if not predicted_incidents_df.empty else []
