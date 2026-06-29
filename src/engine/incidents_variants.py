@@ -28,9 +28,16 @@ from engine.incidents import (
     get_prediction_components,
 )
 
-# Bundled artifact location. Default = inside fire_demo3_api/data/models/growth_poisson_v1/.
-# Override with env var GROWTH_V1_DATA_DIR for non-standard deployments.
-_BUNDLED = _API / "data" / "models" / "growth_poisson_v1"
+# Bundled artifact location. Default = inside <DATA_DIR>/models/growth_poisson_v1/.
+# DATA_DIR is resolved by core.config and honors the DATA_DIR env override so the
+# path works both in local dev (project-relative) and in docker (where the
+# package lives in site-packages and parents[2] walks up to the wrong place).
+# Override the whole bundle dir via GROWTH_V1_DATA_DIR for non-standard layouts.
+try:
+    from core.config import DATA_DIR as _DATA_DIR  # type: ignore
+except Exception:
+    _DATA_DIR = _API / "data"
+_BUNDLED = Path(_DATA_DIR) / "models" / "growth_poisson_v1"
 BUNDLE_DIR = Path(os.environ.get("GROWTH_V1_DATA_DIR", str(_BUNDLED)))
 
 
