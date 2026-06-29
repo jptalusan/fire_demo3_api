@@ -9,6 +9,7 @@ Returns a DataFrame with columns:
   incident_id, datetime, cell_id, cluster, slot, incident_type, category, lat, lon
 """
 from __future__ import annotations
+import functools
 import os, sys, pickle, time
 from pathlib import Path
 import numpy as np
@@ -39,6 +40,44 @@ except Exception:
     _DATA_DIR = _API / "data"
 _BUNDLED = Path(_DATA_DIR) / "models" / "growth_poisson_v1"
 BUNDLE_DIR = Path(os.environ.get("GROWTH_V1_DATA_DIR", str(_BUNDLED)))
+
+
+@functools.lru_cache(maxsize=1)
+def _type_to_category() -> dict[str, str]:
+    """incident_type → NFDResponse Enum (e.g. 'Nine', 'ThreeF') derived from the
+    historical apparatus CSV. The C++ simulator routes apparatus based on this
+    Enum, so the synthetic generator's hard-coded 'Major' / 'Unknown' values
+    would cause the dispatch table lookup to miss. Cached on first call."""
+    path = Path(_DATA_DIR) / "incidents_export_apparatus.csv"
+    if not path.exists():
+        return {}
+    hist = pd.read_csv(path, usecols=["incident_type", "category"], low_memory=False)
+    hist = hist.dropna(subset=["incident_type", "category"])
+    if hist.empty:
+        return {}
+    return (
+        hist.groupby("incident_type")["category"]
+            .agg(lambda s: s.mode().iat[0])
+            .to_dict()
+    )
+
+
+def remap_categories(df: pd.DataFrame) -> pd.DataFrame:
+    """Replace the category column with the canonical NFDResponse Enum keyed
+    off incident_type. Rows whose incident_type is unknown keep whatever the
+    generator emitted (no-op for empty / missing column)."""
+    if df is None or df.empty or "incident_type" not in df.columns:
+        return df
+    mapping = _type_to_category()
+    if not mapping:
+        return df
+    df = df.copy()
+    mapped = df["incident_type"].map(mapping)
+    if "category" in df.columns:
+        df["category"] = mapped.fillna(df["category"])
+    else:
+        df["category"] = mapped
+    return df
 
 
 def _bundle_path(name: str) -> Path:

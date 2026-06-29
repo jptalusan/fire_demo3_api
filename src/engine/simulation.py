@@ -171,10 +171,17 @@ async def run_simulation_internal(config, data_dir, logs_dir, models_dir, config
                     # (outskirt) cells are covered instead of being left empty by
                     # the legacy survival model's deterministic mean inter-arrival.
                     import numpy as np
-                    from engine.incidents_variants import predict_incidents as predict_incidents_growth_v1
+                    from engine.incidents_variants import (
+                        predict_incidents as predict_incidents_growth_v1,
+                        remap_categories,
+                    )
                     seed = int(config.get('seed', 42))
                     predicted_incidents_df = predict_incidents_growth_v1(
                         start_date, end_date, seed=seed, incident_type=incident_type)
+                    # The growth_v1 sampler emits placeholder categories ('Major',
+                    # 'Unknown') that aren't valid NFDResponse Enums. Map back to
+                    # the canonical Enum from historical incident_type→category.
+                    predicted_incidents_df = remap_categories(predicted_incidents_df)
                     # growth_v1 has no incident_level; assign one to match the CSV schema.
                     # Also format datetimes as 'YYYY-MM-DD HH:MM:SS' (no fractional seconds);
                     # the C++ simulator's datetime parser rejects anything longer and falls

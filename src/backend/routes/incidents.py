@@ -18,7 +18,10 @@ from backend.schemas.incidents import (
 )
 from backend.services.auth import get_current_user
 from engine.incidents import predict_incidents_with_types_and_coordinates
-from engine.incidents_variants import predict_incidents as predict_incidents_growth_v1
+from engine.incidents_variants import (
+    predict_incidents as predict_incidents_growth_v1,
+    remap_categories,
+)
 from engine.simulation import get_or_create_historical_incidents
 
 router = APIRouter()
@@ -101,6 +104,10 @@ async def generate_incidents(
         predicted = df
     else:
         predicted = predict_incidents_with_types_and_coordinates(start_date, end_date, incident_type=incident_type)
+
+    # Replace placeholder categories ('Major', 'Unknown') with the canonical
+    # NFDResponse Enum so the C++ simulator's dispatch table lookup matches.
+    predicted = remap_categories(predicted)
 
     # The C++ simulator's datetime parser only accepts 'YYYY-MM-DD HH:MM:SS'.
     # Strip any fractional seconds before serialising; nanosecond timestamps
