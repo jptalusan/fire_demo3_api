@@ -30,8 +30,13 @@ class ApparatusSpec(BaseModel):
     """One apparatus entry on a station."""
     type: Literal[
         "Engine", "Truck", "Rescue", "Hazard", "Squad", "FAST",
-        "Medic", "Brush", "Boat", "UTV", "REACH", "Chief",
-    ] = Field(description="Apparatus type. Fire incidents need an Engine; EMS need a Medic.")
+        "Medic", "Brush", "Boat", "UTV", "REACH",
+        "Suppression_Chief", "EMS_Chief",
+    ] = Field(
+        description="Apparatus type. Fire incidents need an Engine; EMS need a "
+        "Medic. Chiefs come in two flavours: Suppression_Chief for structure/"
+        "hazmat calls, EMS_Chief for medical dispatches."
+    )
     count: int = Field(ge=0, description="How many of this apparatus at the station.")
 
 

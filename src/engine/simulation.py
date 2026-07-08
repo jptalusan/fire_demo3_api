@@ -76,24 +76,31 @@ def create_stations_csv_from_payload(stations_data, output_path):
         stations_data: List of station dictionaries from the payload
         output_path: Path where to save the CSV file
     """
-    # Define all possible apparatus types based on your example
-    apparatus_types = ['Engine_ID', 'Truck', 'Rescue', 'Hazard', 'Squad', 'FAST', 'Medic', 'Brush', 'Boat', 'UTV', 'REACH', 'Chief']
-    
+    # Column names of stations_with_apparatus.csv (must match NFDResponse.csv
+    # headers exactly, otherwise the C++ simulator's per-station apparatus
+    # inventory column-index lookup silently reads zeros).
+    apparatus_types = [
+        'Engine_ID', 'Truck', 'Rescue', 'Hazard', 'Squad', 'FAST', 'Medic',
+        'Brush', 'Boat', 'UTV', 'REACH',
+        'Suppression_Chief', 'EMS_Chief',
+    ]
+    # Payload uses friendlier names in a couple of cases (e.g. 'Engine' →
+    # 'Engine_ID'). Kept minimal: chiefs already flow through as-is because
+    # the schema Literal is authoritative.
+    payload_to_column = {'Engine': 'Engine_ID'}
+
     rows = []
     for station in stations_data:
         # Initialize apparatus counts to empty
         apparatus_counts = {app_type: '' for app_type in apparatus_types}
-        
+
         # Fill in the apparatus counts from the payload
         for apparatus in station.get('apparatus', []):
             app_type = apparatus['type']
             count = apparatus['count']
-            
-            # Map apparatus types to CSV column names
-            if app_type == 'Engine':
-                apparatus_counts['Engine_ID'] = count
-            else:
-                apparatus_counts[app_type] = count
+            col = payload_to_column.get(app_type, app_type)
+            if col in apparatus_counts:
+                apparatus_counts[col] = count
         
         # Create row for CSV
         row = {
