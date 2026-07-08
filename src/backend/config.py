@@ -57,7 +57,10 @@ settings.DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{REPO_ROOT}/storag
 settings.SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
 settings.MAX_ATTEMPTS = int(os.getenv("MAX_ATTEMPTS", "5"))
 settings.STORAGE_ROOT = os.getenv("STORAGE_ROOT", str(REPO_ROOT / "storage"))
-settings.OSRM_HOST = os.getenv("OSRM_HOST", "localhost")
+# Share the docker/native resolution logic with core.config.OSRM_HOST so the
+# backend and the worker agree on the effective OSRM host at import time.
+from core.config import OSRM_HOST as _resolved_osrm_host
+settings.OSRM_HOST = _resolved_osrm_host
 settings.OSRM_PORT = int(os.getenv("OSRM_PORT", "8080"))
 settings.SIMULATOR_BINARY = os.getenv("SIMULATOR_BINARY", str(REPO_ROOT / "data" / "fire_simulator"))
 settings.PORTAL_AUTH_ENABLED = os.getenv("PORTAL_AUTH_ENABLED", "true").lower() in ("1", "true", "yes")
