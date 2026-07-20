@@ -227,3 +227,113 @@ def test_every_category_has_at_least_one_non_chief_apparatus(real_data_dir: Path
             f"incident is dispatched by the old binary. Follow-up: update the "
             f"C++ loader to treat chiefs as dispatchable so these rows work."
         )
+
+
+# --------------------------------------------------------------------------- #
+# Line-ending / hidden-character checks
+#
+# CSV loaders in the C++ simulator use `std::getline(ss, tok, ',')` which does
+# NOT strip a trailing '\r'. On the last field of every row, that leaves the
+# token as e.g. "1\r", which then goes into `std::stoi()`; stoi treats the CR
+# as an invalid leading character and throws `std::invalid_argument`. This
+# crashes every run after someone edits a CSV in Excel or a Windows text
+# editor and saves with CRLF line endings.
+#
+# Failure mode observed: the sim died right after
+#   [info] [HistoricalFireModel] Loading apparatus requirements from: NFDResponse.csv
+# with
+#   terminate called after throwing an instance of 'std::invalid_argument'
+#   what():  stoi
+# despite every EMS_Chief cell "looking" like a plain integer (`1`, `0`, etc.)
+# in a text editor -- the `\r` is invisible.
+# --------------------------------------------------------------------------- #
+
+# Every CSV the simulator reads directly by row/column index. If any of these
+# is CRLF, the sim crashes on the last field of each row.
+_CSVS_THAT_MUST_BE_LF_ONLY = (
+    "stations_with_apparatus.csv",
+    "NFDResponse.csv",
+    "zones.csv",
+    "response_time_summary2.csv",
+)
+
+
+def test_csv_files_use_lf_line_endings_only(real_data_dir: Path):
+    """No `\\r` bytes allowed in any CSV the C++ simulator parses.
+
+    The last field of every CRLF line becomes `<value>\\r`, and the loader's
+    downstream `std::stoi()` throws `invalid_argument` on the trailing CR.
+    """
+    offenders: list[str] = []
+    for name in _CSVS_THAT_MUST_BE_LF_ONLY:
+        path = real_data_dir / name
+        if not path.is_file():
+            # Some deployments legitimately lack response_time_summary2.csv;
+            # the "required files" preflight covers presence separately.
+            continue
+        with path.open("rb") as f:
+            data = f.read()
+        cr_count = data.count(b"\r")
+        if cr_count:
+            # Locate the first offending line for the operator to jump to.
+            first_cr_offset = data.index(b"\r")
+            line_no = data.count(b"\n", 0, first_cr_offset) + 1
+            offenders.append(f"{name}: {cr_count} CR byte(s), first at line {line_no}")
+
+    assert not offenders, (
+        "\n\nPREFLIGHT: CRLF line endings detected in files the C++ simulator\n"
+        "parses. The last field of every CRLF row keeps its trailing '\\r',\n"
+        "which then trips std::stoi() with 'invalid_argument'.\n\n"
+        "  offenders:\n    " + "\n    ".join(offenders) + "\n\n"
+        "  fix (one-liner):  sed -i 's/\\r$//' data/<file>\n"
+        "  or:              dos2unix data/<file>\n\n"
+        "  root cause: the CSV was edited/exported on Windows (Excel, Notepad,\n"
+        "  etc.) and saved with CRLF. Convert to LF and re-run.\n"
+    )
+
+
+def test_apparatus_cells_contain_only_digits_or_empty(real_data_dir: Path):
+    """Every apparatus cell in stations_with_apparatus.csv + NFDResponse.csv
+    must be empty or a plain integer -- no whitespace, no trailing CR, no
+    quoted numbers, no unit strings.
+
+    Empty is fine (loader treats it as zero); anything else feeds a bad
+    token into `std::stoi()` and crashes the simulator with
+    `std::invalid_argument`.
+    """
+    def _bad_cells(path: Path, apparatus_slice: slice, key_col_index: int, key_name: str):
+        bad: list[str] = []
+        with path.open() as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            for row_no, row in enumerate(reader, start=2):
+                if len(row) < len(header):
+                    row = row + [""] * (len(header) - len(row))
+                for col_index, value in enumerate(
+                    row[apparatus_slice], start=apparatus_slice.start
+                ):
+                    if value == "" or (value.lstrip("-").isdigit()):
+                        continue
+                    bad.append(
+                        f"    {path.name}:{row_no} "
+                        f"{key_name}={row[key_col_index]!r} "
+                        f"col{col_index}({header[col_index]!r}) = {value!r}"
+                    )
+        return bad
+
+    problems = []
+    stations = real_data_dir / "stations_with_apparatus.csv"
+    if stations.is_file():
+        problems += _bad_cells(stations, STATIONS_APPARATUS_SLICE, 1, "station")
+    nfd = real_data_dir / "NFDResponse.csv"
+    if nfd.is_file():
+        problems += _bad_cells(nfd, NFDRESPONSE_APPARATUS_SLICE, 0, "category")
+
+    assert not problems, (
+        "\n\nPREFLIGHT: apparatus cells must be empty or plain integers.\n"
+        "The C++ simulator feeds each cell to std::stoi() -- anything with a\n"
+        "trailing '\\r', a whitespace, a unit suffix, or a quoted number\n"
+        "throws std::invalid_argument and terminates the run.\n\n"
+        "  offending cells:\n" + "\n".join(problems) + "\n\n"
+        "  fix: edit each cell to be an integer or clear it entirely.\n"
+    )
