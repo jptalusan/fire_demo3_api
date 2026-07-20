@@ -18,9 +18,11 @@ router = APIRouter()
 DEFAULT_ROSTER_FILE = "stations_with_apparatus.csv"
 APPARATUS_COLUMNS = [
     "Engine_ID", "Truck", "Rescue", "Hazard", "Squad",
-    "FAST", "Medic", "Brush", "Boat", "UTV", "REACH", "Chief",
+    "FAST", "Medic", "Brush", "Boat", "UTV", "REACH",
+    "Suppression_Chief", "EMS_Chief",
 ]
 # CSV column name -> apparatus type as used in the job payload.
+# Chief columns pass through 1:1; only 'Engine_ID' gets renamed to 'Engine'.
 _CSV_TO_TYPE = {c: ("Engine" if c == "Engine_ID" else c) for c in APPARATUS_COLUMNS}
 
 
