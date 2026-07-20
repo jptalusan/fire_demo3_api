@@ -97,6 +97,30 @@ if [[ $phase2 -ne 0 ]]; then
     exit $phase2
 fi
 
+# Optional phase 3: if a docker stack is currently running, verify each
+# container's bind-mounted CSVs actually match what the host file contains.
+# Catches the "docker resolved a symlink at container start, then the symlink
+# target changed" class of bug where the container serves stale data long
+# after `git pull` or a CSV edit. Skips gracefully if docker isn't running
+# or no matching containers are up.
+if command -v docker >/dev/null 2>&1 \
+   && docker compose ps --format '{{.Name}}' 2>/dev/null | grep -qE '_(backend|worker)$'
+then
+    echo
+    echo "[3/3] runtime bind-mount check (containers detected) ..."
+    bash "$(dirname "$0")/check_bind_mounts.sh"
+    phase3=$?
+    if [[ $phase3 -ne 0 ]]; then
+        echo
+        echo "----------------------------------------------------------------------"
+        echo "PREFLIGHT FAILED at phase 3 (runtime bind mounts)."
+        echo "The container's view of a CSV does not match the host file at the"
+        echo "compose-declared bind source. Fix printed above."
+        echo "----------------------------------------------------------------------"
+        exit $phase3
+    fi
+fi
+
 echo "======================================================================"
 echo "  PREFLIGHT PASSED -- safe to start uvicorn / docker compose up."
 echo "======================================================================"
