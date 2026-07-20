@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: fire_demo3_v2_backend
     env_file: .env
+    restart: unless-stopped
     ports: ["8000:8000"]
     volumes:
       - ./storage:/data/storage
@@ -39,6 +40,7 @@ services:
       dockerfile: Dockerfile
     container_name: fire_demo3_v2_worker
     env_file: .env
+    restart: unless-stopped
     volumes:
       - ./storage:/data/storage
       - ./data:/app/data
