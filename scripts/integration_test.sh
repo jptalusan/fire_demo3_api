@@ -2,13 +2,26 @@
 #
 # scripts/integration_test.sh - throwaway end-to-end integration test.
 #
-# Clones the code fresh into a temp dir, wires in the gitignored heavy
-# artifacts (data/, the arch-specific fire_simulator binary, .env) from an
-# existing working deployment, brings up an ISOLATED docker stack on its own
-# ports + container names + compose project (so it cannot touch a live /v2/
-# or /v3/), runs the full backend live suite and a frontend build check, and
-# deletes itself IFF everything passes. On failure it leaves the stack + dir
-# up so you can inspect.
+# EVERYTHING runs inside a temp dir under $HOME. An existing deployment
+# (SRC_DEPLOY) is used ONLY as a read-only source for the gitignored data
+# assets -- the script never executes anything in it, never writes to it, and
+# never brings its stack up/down. The one filesystem touch on SRC_DEPLOY is a
+# `cp -r data/` (+ `cp .env`). If that still feels too coupled, point
+# SRC_DEPLOY at any read-only copy of the data assets instead of a live deploy.
+#
+# Flow: clone the code fresh into the temp dir, copy in the gitignored heavy
+# artifacts (data/ incl. the container-compatible fire_simulator binary, plus
+# .env) from SRC_DEPLOY, bring up an ISOLATED docker stack on its own port +
+# container names + compose project (so it cannot touch a live /v2/ or /v3/),
+# run the full backend live suite and a frontend build check, and delete the
+# temp dir IFF everything passes. On failure it leaves the stack + dir up.
+#
+# Why the binary is copied, not built here: it runs inside the Debian-based
+# container, so it must be built in a Debian-compatible environment. A binary
+# compiled on the RHEL host links RHEL's glibc and can fail with
+# 'GLIBC_2.xx not found' inside the container. The binary in SRC_DEPLOY/data
+# is the one proven to work in that container, so copying it is the safe path.
+# (To rebuild for the container, use the in-image multi-stage build instead.)
 #
 # Usage:
 #   scripts/integration_test.sh
@@ -50,9 +63,9 @@ command -v uv    >/dev/null || die "uv not found (needed for pytest); or edit st
 [ -f "$SRC_DEPLOY/.env" ] || die "no .env under $SRC_DEPLOY"
 
 TEST_DIR="$(mktemp -d "$HOME/fdemo3_test.XXXXXX")"
-echo ">>> test dir:      $TEST_DIR"
-echo ">>> source deploy: $SRC_DEPLOY"
-echo ">>> project:       $PROJECT   port: $BACKEND_PORT"
+echo ">>> test dir:        $TEST_DIR   (everything runs here)"
+echo ">>> data source:     $SRC_DEPLOY   (READ-ONLY copy of data/ + .env; not executed, not modified)"
+echo ">>> project:         $PROJECT   port: $BACKEND_PORT"
 
 # --------------------------------------------------------------------------- #
 # 1. Fresh code checkout
