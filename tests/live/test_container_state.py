@@ -20,8 +20,21 @@ CONTAINER = os.environ.get("LIVE_CONTAINER_NAME")
 HOST_DATA_DIR = os.environ.get("LIVE_HOST_DATA_DIR")
 
 
-def _docker_available() -> bool:
-    return shutil.which("docker") is not None
+def _docker_usable() -> bool:
+    """True only if the docker CLI exists AND the daemon answers without sudo.
+    On hosts where the daemon socket requires root (common on RHEL), `docker
+    exec` fails with a permission error; there's no point running these checks
+    then -- they'd all error rather than validate anything. Skip cleanly."""
+    if shutil.which("docker") is None:
+        return False
+    try:
+        subprocess.run(
+            ["docker", "ps"], check=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+        )
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return False
 
 
 def _run(cmd: list[str]) -> str:
@@ -29,10 +42,11 @@ def _run(cmd: list[str]) -> str:
 
 
 pytestmark = pytest.mark.skipif(
-    not _docker_available() or not CONTAINER,
+    not _docker_usable() or not CONTAINER,
     reason=(
-        "docker CLI or LIVE_CONTAINER_NAME missing. Set LIVE_CONTAINER_NAME "
-        "(e.g. fire_demo3_v3_backend) to enable these checks."
+        "docker not usable without sudo, or LIVE_CONTAINER_NAME unset. These "
+        "checks need passwordless `docker exec` against the test container; "
+        "set LIVE_CONTAINER_NAME and run where docker doesn't require sudo."
     ),
 )
 

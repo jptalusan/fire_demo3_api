@@ -41,11 +41,15 @@ def test_register_is_idempotent_or_conflict(http):
 
 
 def test_login_with_valid_credentials_returns_bearer(http):
-    # Ensure the account exists first (register is idempotent per test above).
-    http.post("/auth/register", json_body={"username": USERNAME, "password": PASSWORD})
+    # Use a DEDICATED username that is only ever created via /auth/register.
+    # Do NOT reuse the portal-login username: portal-login provisions its user
+    # with a random/unusable password hash (by design, so /auth/login can't be
+    # used for portal accounts), which would make a password login here 401.
+    login_user = f"{USERNAME}_pwlogin"
+    http.post("/auth/register", json_body={"username": login_user, "password": PASSWORD})
     status, body = http.post(
         "/auth/login",
-        json_body={"username": USERNAME, "password": PASSWORD},
+        json_body={"username": login_user, "password": PASSWORD},
     )
     assert status == 200, f"HTTP {status} body={body!r}"
     assert isinstance(body, dict) and "access_token" in body, body

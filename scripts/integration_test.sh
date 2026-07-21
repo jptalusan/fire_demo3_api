@@ -82,6 +82,24 @@ cp -r "$SRC_DEPLOY/data" ./data || die "copy data/ failed"
 cp "$SRC_DEPLOY/.env" ./.env
 mkdir -p storage logs
 
+# FIREBEATS dispatch reads logs/beats.bin (the precomputed run-order matrix).
+# It lives under logs/, not data/, so a fresh logs/ dir would leave FIREBEATS
+# jobs failing with "status=error with no message" while NEAREST works. Carry
+# the beats matrix over from the source deploy if present.
+if [ -f "$SRC_DEPLOY/logs/beats.bin" ]; then
+  cp "$SRC_DEPLOY/logs/beats.bin" ./logs/beats.bin
+  echo ">>> copied logs/beats.bin (FIREBEATS dispatch matrix)"
+else
+  echo "WARN: $SRC_DEPLOY/logs/beats.bin not found -- FIREBEATS jobs will fail; NEAREST unaffected"
+fi
+
+# Drop any cached synthetic-incident CSVs carried in from the source deploy.
+# Old caches predate the datetime/comma/category fixes and get served as-is by
+# /api/incidents/generate-incidents (it returns the cached file if present),
+# which would resurface already-fixed bugs. Force regeneration with current code.
+rm -rf ./data/incidents/synthetic 2>/dev/null || true
+echo ">>> cleared cached synthetic incident CSVs (force regeneration)"
+
 # Sanity: binary + split-format CSVs must line up, else jobs will fail.
 file ./data/fire_simulator | grep -qiE "ELF|Mach-O" || die "data/fire_simulator is not an executable"
 head -1 ./data/NFDResponse.csv | grep -q "Suppression_Chief" \
